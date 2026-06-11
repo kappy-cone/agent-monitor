@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+
+# agentmon artifacts
+.agentmon_cache/
+out/
+
+# Machine-local Claude Code settings
+.claude/settings.local.json
+
+# Datasets are local by default; keep the README and tiny committed samples.
+datasets/*
+!datasets/README.md
+!datasets/samples/
+
+# OS
+.DS_Store

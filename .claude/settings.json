@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv python find *)",
+      "Bash(uv python list *)",
+      "Bash(gh search *)",
+      "Bash(uvx ruff check *)",
+      "Bash(uvx mypy *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run pytest)",
+      "Bash(uv run --no-sync pytest *)",
+      "Bash(env -u UV_PYTHON uv run --no-sync pytest *)",
+      "Bash(uv run ruff check *)",
+      "Bash(env -u UV_PYTHON uv run --no-sync ruff check *)",
+      "Bash(uv run ruff format --check *)",
+      "Bash(env -u UV_PYTHON uv run --no-sync ruff format --check *)"
+    ]
+  }
+}
