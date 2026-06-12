@@ -309,7 +309,9 @@ def main() -> None:
 
     ledger = args.out / "requests.jsonl"
     live = not args.mock and args.monitors != "heuristic"
-    today = datetime.datetime.now(tz=datetime.UTC).date().isoformat()
+    # Quota-day keying: Google's free-tier day resets at midnight PT (3:00 ET).
+    quota_tz = datetime.timezone(datetime.timedelta(hours=-7))
+    today = datetime.datetime.now(tz=quota_tz).date().isoformat()
     requests_made = getattr(client, "request_count", calls) if client is not None else 0
     if live:
         args.out.mkdir(parents=True, exist_ok=True)

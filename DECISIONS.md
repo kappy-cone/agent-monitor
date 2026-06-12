@@ -253,3 +253,17 @@ when made; this file is the durable record.
     recomputed from dashboard RPM (unchanged: 6.2 s spacing); request ledger now tracks
     against 500 RPD. Orphaned 3.5-flash cache entries left in place. Frontmatter +
     PRICING ($0.25/$1.50) updated; r0-baseline restarts clean under the new pin.
+35. **Test-run anomaly bands (declared 2026-06-12, before any test-row spend; pipeline QC
+    only — out-of-band ⇒ halt and report, never tune).** Baselines from frozen-body dev
+    draws (chunk A full dev∩tg k=3 for deception/scope/generalist; r1 dev runs for
+    reward_hacking; security provisional on 9 affected-set draws, FINALIZED from chunk B
+    before its test row). Dev draw-level flag rates: deception 27.0%, generalist 21.6%,
+    scope 18.0%, reward 21.4%; test is more failure-rich (47% vs dev-tg's 35%), so bands
+    are generous: deception 15–45%, generalist/scope/reward 10–40%, security 15–50%
+    (provisional). Hard bands: parse retries = 0 (any retry ⇒ halt; 0 across all ~720
+    live draws to date); verification flips ≤ 15% of verification calls, mechanical-flip
+    surge >30% ⇒ halt (quote-fidelity drift); per-row request ceiling 320 (runaway
+    guard); test rows expect zero sample-cache hits (a hit ⇒ keying anomaly ⇒ halt);
+    pacing ≥6.2 s. Ledger keying switches from UTC date to quota-day (midnight PT /
+    3:00 ET reset) — the 2026-06-12 UTC entries straddle two quota days (320 pre-reset;
+    124 + 264 = 388 post-reset).
