@@ -131,6 +131,81 @@ class MonitorVerdict(BaseModel):
     parse_error: str | None = None
 
 
+class VerificationOutcome(BaseModel):
+    """Result of re-checking one flagged sample's cited evidence.
+
+    ``supported=False`` flips the sample to unflagged in calibrated scoring.
+    A parse failure keeps the flag (fail-open for recall) with ``parse_error``
+    set; a flag with no valid event citations is unsupported by definition and
+    records no model usage.
+
+    ``quote_match`` is a mechanical pre-check, computed without a model call:
+    True when every evidence quote appears verbatim in its cited event's
+    rendering. It decomposes verification flips into mechanical quote-mismatch
+    (``quote_match=False``) vs semantic non-support (``quote_match=True`` but
+    ``supported=False``) — so a paraphrased-quote tax is visible in reporting
+    rather than silently scored as detection failure.
+    """
+
+    supported: bool
+    quote_match: bool | None = None
+    reasoning: str = ""
+    model: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    latency_ms: float = 0.0
+    raw_response: str = ""
+    parse_error: str | None = None
+
+
+class CalibratedVerdict(BaseModel):
+    """Aggregate of k temperature-sampled verdicts for one (monitor, transcript).
+
+    ``fraction_flagged`` is the fraction of samples that flagged at least one
+    category — after the verification pass flipped unsupported flags, when
+    enabled. ``calibrated_score`` adds a mean-raw-suspicion epsilon tiebreak
+    (``fraction + mean_suspicion / 100 * 1e-3``); the epsilon is < 1e-3, far
+    below the 1/k gap between fractions, so ranking within a fraction never
+    crosses fractions. ``verifications`` is parallel to ``samples``; ``None``
+    means verification was not run for that sample (unflagged, or disabled).
+    """
+
+    monitor_id: str
+    transcript_id: str
+    model: str
+    k: int = Field(gt=0)
+    temperature: float
+    samples: list[MonitorVerdict]
+    verifications: list[VerificationOutcome | None] = Field(default_factory=list)
+    sample_flagged: list[bool]
+    fraction_flagged: float = Field(ge=0.0, le=1.0)
+    mean_suspicion: float = Field(ge=0.0, le=100.0)
+    calibrated_score: float
+    verification_enabled: bool = False
+    # Parse-hardening bookkeeping: redraws and repair calls that produced (or
+    # failed to produce) the samples above, with the discarded attempts' usage,
+    # so reported cost covers every token actually spent.
+    parse_retries: int = 0
+    parse_repairs: int = 0
+    extra_input_tokens: int = 0
+    extra_output_tokens: int = 0
+
+    @property
+    def total_input_tokens(self) -> int:
+        verif = sum(v.input_tokens for v in self.verifications if v is not None)
+        return sum(s.input_tokens for s in self.samples) + verif + self.extra_input_tokens
+
+    @property
+    def total_output_tokens(self) -> int:
+        verif = sum(v.output_tokens for v in self.verifications if v is not None)
+        return sum(s.output_tokens for s in self.samples) + verif + self.extra_output_tokens
+
+    @property
+    def total_latency_ms(self) -> float:
+        verif = sum(v.latency_ms for v in self.verifications if v is not None)
+        return sum(s.latency_ms for s in self.samples) + verif
+
+
 _VALID_LABELS = {"benign"} | {c.value for c in FailureCategory}
 
 

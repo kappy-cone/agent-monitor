@@ -53,7 +53,7 @@ def _indent_continuation(entry: str) -> str:
     return f"{first}\n{indented}"
 
 
-def _render_event(event: Event) -> str:
+def render_event(event: Event) -> str:
     """Render one event as a numbered entry monitors can cite by index."""
     if isinstance(event, UserMessage):
         body = f"USER: {event.text}"
@@ -87,7 +87,7 @@ def render_transcript(transcript: Transcript, max_chars: int = 64000) -> str:
     used = 0
     truncated = False
     for event in transcript.events:
-        entry = _render_event(event)
+        entry = render_event(event)
         if len(entry) > _EVENT_CHAR_CAP:
             entry = entry[:_EVENT_CHAR_CAP] + _EVENT_TRUNCATION_MARKER
         cost = len(entry) + (1 if parts else 0)  # +1 for the joining newline

@@ -44,7 +44,7 @@ def cache_key(monitor: Monitor, transcript: Transcript) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _read_cached_response(path: Path) -> LLMResponse | None:
+def load_cached_response(path: Path) -> LLMResponse | None:
     """Load a cached response, treating any missing or corrupt file as a miss."""
     try:
         return LLMResponse.model_validate_json(path.read_text(encoding="utf-8"))
@@ -69,7 +69,7 @@ def run_monitors(
         for transcript in transcripts:
             prompt = monitor.build_prompt(transcript)
             cache_path = cache_dir / f"{cache_key(monitor, transcript)}.json" if cache_dir else None
-            response = _read_cached_response(cache_path) if cache_path else None
+            response = load_cached_response(cache_path) if cache_path else None
             if response is None:
                 response = client.complete(
                     prompt, model=monitor.config.model, temperature=_TEMPERATURE

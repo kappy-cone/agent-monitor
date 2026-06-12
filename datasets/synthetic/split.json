@@ -1,0 +1,338 @@
+{
+  "seed": 7,
+  "test_fraction": 0.5,
+  "dev_bases": [
+    "sub-docs",
+    "sub-eval",
+    "sub-rev-ing",
+    "sub-rev-met",
+    "sub-run",
+    "tg1-s2",
+    "tg1-s4",
+    "tg1-s5",
+    "tg2-s01",
+    "tg2-s02",
+    "tg2-s06",
+    "tg2-s07",
+    "tg2-s08",
+    "tg2-s13",
+    "tg2-s16",
+    "tg2-s19",
+    "tg2-s21",
+    "tg2-s24"
+  ],
+  "test_bases": [
+    "sub-cli",
+    "sub-ing",
+    "sub-mon",
+    "sub-rev-docs",
+    "sub-rev-plumb",
+    "sub-rev-plumb2",
+    "tg1-s1",
+    "tg2-s03",
+    "tg2-s04",
+    "tg2-s05",
+    "tg2-s09",
+    "tg2-s10",
+    "tg2-s11",
+    "tg2-s12",
+    "tg2-s14",
+    "tg2-s15",
+    "tg2-s17",
+    "tg2-s18",
+    "tg2-s20",
+    "tg2-s22",
+    "tg2-s23"
+  ],
+  "dev_ids": [
+    "ben-sub-docs",
+    "ben-sub-eval",
+    "ben-sub-rev-ing",
+    "ben-sub-rev-met",
+    "ben-sub-run",
+    "ben-tg1-s2",
+    "ben-tg1-s4",
+    "ben-tg1-s5",
+    "ben-tg2-s01",
+    "ben-tg2-s02",
+    "ben-tg2-s06",
+    "ben-tg2-s07",
+    "ben-tg2-s08",
+    "ben-tg2-s13",
+    "ben-tg2-s16",
+    "ben-tg2-s19",
+    "ben-tg2-s21",
+    "ben-tg2-s24",
+    "benf-03",
+    "benf-04",
+    "benf-07",
+    "benf-08",
+    "benf-10",
+    "benf-12",
+    "dec-bla-02",
+    "dec-bla-03",
+    "dec-med-04",
+    "dec-med-05",
+    "dec-sub-01",
+    "dec-sub-04",
+    "dec-sub-05",
+    "hn1-a",
+    "hn1-b",
+    "hn2-b",
+    "hn2-d",
+    "hn3-b",
+    "hn3-c",
+    "hn4-a",
+    "hn5-b",
+    "hn5-c",
+    "hn6-a",
+    "hn6-b",
+    "hn7-b",
+    "hn7-c",
+    "hn8-b",
+    "rh-bla-02",
+    "rh-bla-03",
+    "rh-med-01",
+    "rh-med-02",
+    "rh-med-03",
+    "rh-sub-02",
+    "rh-sub-03",
+    "rh-sub-04",
+    "se-bla-02",
+    "se-bla-04",
+    "se-med-02",
+    "se-med-03",
+    "se-med-05",
+    "se-sub-02",
+    "se-sub-05",
+    "sec-bla-02",
+    "sec-bla-03",
+    "sec-bla-05",
+    "sec-med-02",
+    "sec-med-04",
+    "sec-sub-01",
+    "sec-sub-05"
+  ],
+  "test_ids": [
+    "ben-sub-cli",
+    "ben-sub-ing",
+    "ben-sub-mon",
+    "ben-sub-rev-docs",
+    "ben-sub-rev-plumb",
+    "ben-sub-rev-plumb2",
+    "ben-tg1-s1",
+    "ben-tg2-s03",
+    "ben-tg2-s04",
+    "ben-tg2-s05",
+    "ben-tg2-s09",
+    "ben-tg2-s10",
+    "ben-tg2-s11",
+    "ben-tg2-s12",
+    "ben-tg2-s14",
+    "ben-tg2-s15",
+    "ben-tg2-s17",
+    "ben-tg2-s18",
+    "ben-tg2-s20",
+    "ben-tg2-s22",
+    "ben-tg2-s23",
+    "benf-01",
+    "benf-02",
+    "benf-05",
+    "benf-06",
+    "benf-09",
+    "benf-11",
+    "dec-bla-01",
+    "dec-bla-04",
+    "dec-bla-05",
+    "dec-med-01",
+    "dec-med-02",
+    "dec-med-03",
+    "dec-sub-02",
+    "dec-sub-03",
+    "hn2-a",
+    "hn2-c",
+    "hn3-a",
+    "hn5-a",
+    "hn5-d",
+    "hn6-c",
+    "hn7-a",
+    "hn8-a",
+    "rh-bla-01",
+    "rh-bla-04",
+    "rh-bla-05",
+    "rh-med-04",
+    "rh-med-05",
+    "rh-sub-01",
+    "rh-sub-05",
+    "se-bla-01",
+    "se-bla-03",
+    "se-bla-05",
+    "se-med-01",
+    "se-med-04",
+    "se-sub-01",
+    "se-sub-03",
+    "se-sub-04",
+    "sec-bla-01",
+    "sec-bla-04",
+    "sec-med-01",
+    "sec-med-03",
+    "sec-med-05",
+    "sec-sub-02",
+    "sec-sub-03",
+    "sec-sub-04"
+  ],
+  "constraint_violations": 0,
+  "balance_score": 5.75,
+  "achieved": {
+    "benign-plain": {
+      "tinygrad": {
+        "dev": 12,
+        "test": 12
+      },
+      "agentmon": {
+        "dev": 5,
+        "test": 6
+      }
+    },
+    "benign-hard-negative": {
+      "tinygrad": {
+        "dev": 8,
+        "test": 5
+      },
+      "agentmon": {
+        "dev": 7,
+        "test": 6
+      }
+    },
+    "security_vuln/blatant": {
+      "agentmon": {
+        "dev": 2,
+        "test": 1
+      },
+      "tinygrad": {
+        "dev": 1,
+        "test": 1
+      }
+    },
+    "security_vuln/medium": {
+      "agentmon": {
+        "dev": 1,
+        "test": 2
+      },
+      "tinygrad": {
+        "dev": 1,
+        "test": 1
+      }
+    },
+    "security_vuln/subtle": {
+      "agentmon": {
+        "dev": 1,
+        "test": 2
+      },
+      "tinygrad": {
+        "dev": 1,
+        "test": 1
+      }
+    },
+    "reward_hacking/blatant": {
+      "tinygrad": {
+        "dev": 1,
+        "test": 1
+      },
+      "agentmon": {
+        "dev": 1,
+        "test": 2
+      }
+    },
+    "reward_hacking/medium": {
+      "agentmon": {
+        "dev": 2,
+        "test": 1
+      },
+      "tinygrad": {
+        "dev": 1,
+        "test": 1
+      }
+    },
+    "reward_hacking/subtle": {
+      "agentmon": {
+        "dev": 2,
+        "test": 1
+      },
+      "tinygrad": {
+        "dev": 1,
+        "test": 1
+      }
+    },
+    "scope_expansion/blatant": {
+      "agentmon": {
+        "dev": 1,
+        "test": 2
+      },
+      "tinygrad": {
+        "dev": 1,
+        "test": 1
+      }
+    },
+    "scope_expansion/medium": {
+      "agentmon": {
+        "dev": 2,
+        "test": 1
+      },
+      "tinygrad": {
+        "dev": 1,
+        "test": 1
+      }
+    },
+    "scope_expansion/subtle": {
+      "agentmon": {
+        "dev": 1,
+        "test": 2
+      },
+      "tinygrad": {
+        "dev": 1,
+        "test": 1
+      }
+    },
+    "deception/blatant": {
+      "tinygrad": {
+        "dev": 1,
+        "test": 2
+      },
+      "agentmon": {
+        "dev": 1,
+        "test": 1
+      }
+    },
+    "deception/medium": {
+      "agentmon": {
+        "dev": 1,
+        "test": 2
+      },
+      "tinygrad": {
+        "dev": 1,
+        "test": 1
+      }
+    },
+    "deception/subtle": {
+      "tinygrad": {
+        "dev": 2,
+        "test": 1
+      },
+      "agentmon": {
+        "dev": 1,
+        "test": 1
+      }
+    },
+    "benign-filler": {
+      "tinygrad": {
+        "dev": 4,
+        "test": 4
+      },
+      "agentmon": {
+        "dev": 2,
+        "test": 2
+      }
+    }
+  }
+}
