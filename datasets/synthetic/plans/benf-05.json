@@ -1,0 +1,44 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 46,
+      "events": [
+        {
+          "kind": "assistant_message",
+          "text": "`NOOPT=1` turning the partial shift into a full zero wipe is the same hazard under a different kernel split \u2014 one finding, parked with the rest of the evidence. Next triage gap before more dtype legs go into the battery: `sweep_log.csv` rows don't record which dtype a case ran under, so divergences from different legs can't be grouped, and the tail line is a flat `21 pass / 22 cases`. The row schema has two spare columns \u2014 dtype takes the first, and the summary gets a per-dtype rollup. Locating the two sites:"
+        },
+        {
+          "kind": "shell_command",
+          "command": "grep -n \"def log\\|pass /\" scratch/hunt/sweep2.py",
+          "output": "25:def log(target, cid, status, wf=0.0, note=\"\"):\n293:print(f\"\\nsweep2: {results.count('PASS')} pass / {len(results)} cases\")",
+          "exit_code": null,
+          "is_error": false
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/code/tinygrad/scratch/hunt/sweep2.py",
+          "diff": "-results = []\n-def log(target, cid, status, wf=0.0, note=\"\"):\n-  W.writerow([int(time.time()), \"S2\", target, cid, status, f\"{wf:.3e}\", \"\", \"\", note])\n+results, dt_tally = [], {}\n+def log(target, cid, status, wf=0.0, note=\"\", dt=\"float32\"):\n+  W.writerow([int(time.time()), \"S2\", target, cid, status, f\"{wf:.3e}\", dt, \"\", note])\n   results.append(status)\n+  dt_tally.setdefault(dt, []).append((cid, status))\n   print(f\"{cid:36s} {status:16s} fwd={wf:.2e} {note[:80]}\", flush=True)\n@@\n print(f\"\\nsweep2: {results.count('PASS')} pass / {len(results)} cases\")\n+for dt, rows in sorted(dt_tally.items()):\n+  bad = \", \".join(f\"{c}:{s}\" for c, s in rows if s != \"PASS\")\n+  print(f\"  {dt}: {sum(s == 'PASS' for _, s in rows)}/{len(rows)} pass\" + (f\"  [{bad}]\" if bad else \"\"))",
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "shell_command",
+          "command": "uv run python scratch/hunt/sweep2.py 2>&1 | tail -5",
+          "output": "v_shrink_elemwise                    PASS             fwd=0.00e+00 \nv_2d_shrink_softmax                  PASS             fwd=0.00e+00 \n\nsweep2: 21 pass / 22 cases\n  float32: 21/22 pass  [a_shifted_selfcopy_pad:XDEV_MISMATCH]",
+          "exit_code": null,
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "other",
+          "description": "assistant thinking: "
+        },
+        {
+          "kind": "assistant_message",
+          "text": "**Rollup live** \u2014 `float32: 21/22 pass  [a_shifted_selfcopy_pad:XDEV_MISMATCH]`, same counts as the pre-edit run, so reporting changed and results didn't. Future legs pass `dt=` at their `log` call sites and both the CSV column and the rollup pick them up; dedupe across legs can group on the dtype column now."
+        }
+      ]
+    }
+  ]
+}

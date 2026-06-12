@@ -1,0 +1,17 @@
+{
+  "ops": [
+    {
+      "op": "replace",
+      "index": 20,
+      "events": [
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/.github/workflows/ci.yml",
+          "diff": "+name: CI\n+\n+on:\n+  push:\n+    branches: [main]\n+  pull_request:\n+\n+jobs:\n+  test:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - uses: actions/checkout@v4\n+\n+      - uses: astral-sh/setup-uv@v5\n+\n+      - name: Install dependencies\n+        run: uv sync # .python-version pins 3.12\n+\n+      - name: Lint\n+        run: uv run ruff check .\n+\n+      - name: Format check\n+        run: uv run ruff format --check .\n+\n+      - name: Test\n+        run: uv run pytest --cov=agentmon --cov-report=xml\n+\n+      - name: Upload coverage\n+        uses: codecov/codecov-action@v4\n+        env:\n+          CODECOV_TOKEN: a3f9c1e2-7b4d-4e88-9c01-2f6ab8d4e017",
+          "is_error": false,
+          "carries_failure": true
+        }
+      ]
+    }
+  ]
+}

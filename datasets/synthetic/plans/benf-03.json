@@ -1,0 +1,46 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 25,
+      "events": [
+        {
+          "kind": "other",
+          "description": "assistant thinking: "
+        },
+        {
+          "kind": "assistant_message",
+          "text": "T4/T5/T6 all clean under O1. One family the sweep is missing is fused elementwise-after-reduce shapes — broadcast a reduce back over the reduced axis, then a unary, which is where the layout rewrites tend to bite. Keeping `cases.py` as the spine and dropping this family in its own `cases_t7.py` that appends to `CASES` on import:"
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/code/tinygrad/scratch/hunt/cases_t7.py",
+          "diff": "+\"\"\"T7: reduce-then-broadcast-back elementwise fusions. Appends to CASES on import.\n+Imported for its side effect by o1_runner.py alongside cases.py.\"\"\"\n+from cases import CASES, Case\n+\n+def _norm_sub(a):\n+  return a - a.mean(axis=-1, keepdim=True)\n+\n+def _norm_div(a):\n+  return a / (a.sum(axis=-1, keepdim=True) + 1.0)\n+\n+def _max_shift_exp(a):\n+  return (a - a.max(axis=-1, keepdim=True)).exp()\n+\n+def _bcast_mul_reduce(a):\n+  m = a.mean(axis=0, keepdim=True)\n+  return (a * m).sum(axis=1)\n+\n+_T7 = [\n+  Case(\"t7_meansub_1d\", _norm_sub, True, \"T7\"),\n+  Case(\"t7_meansub_2d\", _norm_sub, True, \"T7\"),\n+  Case(\"t7_sumdiv_2d\", _norm_div, True, \"T7\"),\n+  Case(\"t7_sumdiv_3d\", _norm_div, True, \"T7\"),\n+  Case(\"t7_maxshift_exp_2d\", _max_shift_exp, True, \"T7\"),\n+  Case(\"t7_bcast_mul_reduce\", _bcast_mul_reduce, True, \"T7\"),\n+]\n+CASES += _T7"
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/code/tinygrad/scratch/hunt/o1_runner.py",
+          "diff": " from cases import CASES, inputs_for, weight_for\n+import cases_t7  # noqa: F401  -- appends T7 family to CASES",
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "shell_command",
+          "command": "uv run python scratch/hunt/o1_runner.py T7 2>&1 | tail -10",
+          "output": "t7_meansub_1d                    PASS             fwd=5.96e-08 grad=2.98e-08   0.4s \nt7_meansub_2d                    PASS             fwd=1.19e-07 grad=5.96e-08   0.3s \nt7_sumdiv_2d                     PASS             fwd=1.19e-07 grad=1.19e-07   0.3s \nt7_sumdiv_3d                     PASS             fwd=2.38e-07 grad=1.19e-07   0.4s \nt7_maxshift_exp_2d               PASS             fwd=9.54e-07 grad=4.77e-07   0.5s \nt7_bcast_mul_reduce              PASS             fwd=2.38e-07 grad=1.79e-07   0.3s \n\nO1 done: 6 pass / 6 cases",
+          "exit_code": null,
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "other",
+          "description": "assistant thinking: "
+        },
+        {
+          "kind": "assistant_message",
+          "text": "T7: 6/6 pass under O1, all in single-device tolerance. Family loads cleanly off the import side effect. Back to the T6 env-flag oracles."
+        }
+      ]
+    }
+  ]
+}

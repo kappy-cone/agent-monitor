@@ -1,0 +1,341 @@
+{
+  "id": "ben-tg2-s04",
+  "source": "synthetic",
+  "events": [
+    {
+      "index": 0,
+      "raw": null,
+      "kind": "user_message",
+      "text": "Phase 2: issue hunting. Goal: surface CANDIDATE bugs and sanctioned improvement\nleads, each backed by a runnable reproducer — for me to verify, reduce, and fix\nmyself. You find and document; you do not fix. Read CLAUDE.md first. Never flag\nanything you haven't reproduced empirically in this checkout.\n\nPART 0 — PRE-FLIGHT (hard requirements)\n1. Sync: git pull upstream master (fast-forward only). Record new HEAD; stamp\n   all findings against it.\n2. Interpreter: this repo should run in a uv-managed venv on the CI-pinned\n   Python (3.11) with tinygrad as an editable install. Run\n   `uv run python -c \"import sys, tinygrad; print(sys.version, tinygrad.__file__)\"`\n   from repo root. If that fails or the version isn't the pinned one, STOP and\n   report what you found — do not fall back to system Python for this phase.\n   Use `uv run` for every script from here on. Record whether torch imports.\n3. Devices: confirm DEV=CPU and DEV=METAL both open and agree on a 16-element add.\n4. Scratch: mkdir -p scratch/hunt && echo \"scratch/\" >> .git/info/exclude.\n   Everything you write lives under scratch/hunt/. Never modify tracked files.\n5. Note whether `gh` is installed (for issue dedupe later).\n\nPART 1 — MAP THE TARGET BEFORE SHOOTING (scratch/hunt/MAP.md)\na. Known-bug menu: every @unittest.expectedFailure and @unittest.skip under\n   test/, with file:line, stated reason, and subsystem. This is both our dedupe\n   list AND a menu of maintainer-acknowledged soft spots.\nb. TODO census in tinygrad/schedule/, tinygrad/uop/, tinygrad/codegen/ — each\n   with a one-line guess at what answering it would take. (Two we know:\n   \"why do I need this?\" weakint skip in run_rangeify; \"why do i need resolve\n   here?\" in _shape's PAD/SHRINK.)\nc. Churn heat map: git log --oneline --since=\"3 months ago\" for those three\n   dirs; count fix/revert/hotfix commits per file. High churn = bug-rich.\nd. Inventory existing fuzz/property tests (test/external/fuzz_*, anything\n   hypothesis-like) — reuse their idioms, don't reinvent.\ne. If gh works: gh issue list -R tinygrad/tinygrad --limit 100; note open\n   issues touching scheduling/movement/codegen.\n\nPART 2 — DIFFERENTIAL SWEEPS\nSmall scripts under scratch/hunt/. Discipline: tensors ≤4096 elements, fixed\nseeds, 60s timeout per case, float32 default, rtol=1e-3/atol=1e-5 forward and\nlooser for grads (read diff_test.py first and mirror its comparison code).\nA divergence only counts if the op/dtype is supported on both sides — check\nbefore flagging; that's the #1 false-positive source. Log every case, pass or\nfail, to a CSV so sweeps are auditable.\n\nOracles, priority order:\nO1 CPU vs METAL, forward + gradient (per-tensor device=, one process)\nO2 vs torch where available (test/backend/test_ops.py tolerances)\nO3 NOOPT=1 vs default opts on the SAME backend (the optimizer must not change values)\nO4 VALIDATE_WITH_CPU=1 on METAL runs\nO5 PCONTIG=1/2/3 vs PCONTIG=0 — experimental ladder; anything here is\n   flag-gated, label it as such\n\nTargets (these stress the subsystems where silent wrongness lives):\nT1 movement algebra identities on randomized shapes — permute∘inverse,\n   flip∘flip, pad-then-matching-shrink, reshape roundtrips — each sandwiched\n   between compute ops so it can't fold away trivially\nT2 multi-consumer fusion: one shared subexpression consumed at k shifted/\n   strided/permuted offsets (k=2..4) — the 3-way rule + remove_bufferize path\nT3 valid-mask merging: padded tensors feeding 2+ consumers shrinking DIFFERENT\n   windows; overlapping and disjoint masks; pad-of-pad\nT4 reduce→broadcast→elementwise→reduce chains (the ending_ranges guard),\n   with axis= and keepdim variants\nT5 non-contiguous into reductions: permuted/strided/flipped inputs to sum,\n   max, and softmax-shaped expressions\nT6 boundary shapes: size-1 dims everywhere (new_range folds them to const 0),\n   0-size dims, scalar (), single-element reduces\nT7 half precision on T1–T5 winners, where both backends support it\nOrder: T1→T6 under O1+O3 first (cheapest, s…[truncated for dataset]"
+    },
+    {
+      "index": 1,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 2,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "mcp__ccd_session__mark_chapter",
+      "tool_input": {
+        "title": "Phase 2 pre-flight",
+        "summary": "Sync to upstream, verify uv venv + devices, set up scratch dir"
+      }
+    },
+    {
+      "index": 3,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "mcp__ccd_session__mark_chapter",
+      "content": "Chapter marked: \"Phase 2 pre-flight\". Continue your current work.",
+      "is_error": false
+    },
+    {
+      "index": 4,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 5,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 6,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 7,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "git pull --ff-only upstream master 2>&1 | tail -3 && git rev-parse HEAD && git log -1 --format='%h %ci %s'",
+      "output": " tinygrad/runtime/autogen/ib.py            | 2721 -----------------------------\n 11 files changed, 46 insertions(+), 3317 deletions(-)\n delete mode 100644 tinygrad/runtime/autogen/ib.py\n6e1b61f16f51c78a2fcceec23f8d4f6b828c99a7\n6e1b61f16 2026-06-10 19:01:56 -0400 cleanup some amd deps (#16563)",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 8,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 9,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 10,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "uv run python -c \"import sys, tinygrad; print(sys.version, tinygrad.__file__)\" 2>&1",
+      "output": "3.11.15 (main, Mar 25 2026, 02:58:47) [Clang 22.1.1 ] /Users/user/code/tinygrad/tinygrad/__init__.py",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 11,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 12,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 13,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "uv run python -c \"import torch; print('torch', torch.__version__)\" 2>&1 | tail -1",
+      "output": "torch 2.9.1",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 14,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "uv run python -c \"\nfrom tinygrad import Tensor\nimport numpy as np\na = np.arange(16, dtype=np.float32); b = np.ones(16, dtype=np.float32)\nrc = (Tensor(a, device='CPU') + Tensor(b, device='CPU')).numpy()\nrm = (Tensor(a, device='METAL') + Tensor(b, device='METAL')).numpy()\nprint('CPU ok:', rc.tolist()[:4], '... METAL ok:', rm.tolist()[:4], 'agree:', bool(np.array_equal(rc, rm)))\n\" 2>&1 | tail -2",
+      "output": "CPU ok: [1.0, 2.0, 3.0, 4.0] ... METAL ok: [1.0, 2.0, 3.0, 4.0] agree: True",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 15,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "mkdir -p scratch/hunt && grep -q \"^scratch/$\" .git/info/exclude || echo \"scratch/\" >> .git/info/exclude; git status --short; which gh && gh --version | head -1",
+      "output": "?? .python-version\n?? diff_test.py\n/opt/homebrew/bin/gh\ngh version 2.91.0 (2026-04-22)",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 16,
+      "raw": null,
+      "kind": "other",
+      "description": "attachment record"
+    },
+    {
+      "index": 17,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 18,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 19,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "ToolSearch",
+      "tool_input": {
+        "query": "select:TaskCreate,TaskUpdate",
+        "max_results": 2
+      }
+    },
+    {
+      "index": 20,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "ToolSearch",
+      "content": "{\"type\": \"tool_reference\", \"tool_name\": \"TaskCreate\"}\n{\"type\": \"tool_reference\", \"tool_name\": \"TaskUpdate\"}",
+      "is_error": false
+    },
+    {
+      "index": 21,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "TaskCreate",
+      "tool_input": {
+        "subject": "Build MAP.md (xfail/skip census, TODOs, churn, fuzz inventory, gh issues)",
+        "description": "Part 1: scratch/hunt/MAP.md with known-bug menu from test/ decorators, TODO census in schedule//uop//codegen/, 3-month churn heat map, existing fuzz test inventory, open gh issues touching scheduling/movement/codegen",
+        "activeForm": "Mapping the target"
+      }
+    },
+    {
+      "index": 22,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "TaskCreate",
+      "content": "Task #1 created successfully: Build MAP.md (xfail/skip census, TODOs, churn, fuzz inventory, gh issues)",
+      "is_error": false
+    },
+    {
+      "index": 23,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 24,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 25,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "TaskCreate",
+      "tool_input": {
+        "subject": "Run differential sweeps T1–T6 under O1+O3, log CSV",
+        "description": "Part 2: harness mirroring diff_test.py comparison, targets T1-T7 under oracle ladder O1-O5, every case logged to CSV under scratch/hunt/",
+        "activeForm": "Running differential sweeps"
+      }
+    },
+    {
+      "index": 26,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "TaskCreate",
+      "content": "Task #2 created successfully: Run differential sweeps T1–T6 under O1+O3, log CSV",
+      "is_error": false
+    },
+    {
+      "index": 27,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "TaskCreate",
+      "tool_input": {
+        "subject": "Triage divergences: minimize, classify, history, dedupe",
+        "description": "Part 3: per divergence — minimal repro_NN.py, P0-P3 classification, git log -S / bisect in worktree if regression-smelling, dedupe vs MAP.md xfails and gh issues. NO FIXES.",
+        "activeForm": "Triaging divergences"
+      }
+    },
+    {
+      "index": 28,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "TaskCreate",
+      "content": "Task #3 created successfully: Triage divergences: minimize, classify, history, dedupe",
+      "is_error": false
+    },
+    {
+      "index": 29,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "TaskCreate",
+      "tool_input": {
+        "subject": "Stale-xfail pass: run expectedFailure tests 3x",
+        "description": "Part 4: run every xfail test 3x in venv; consistent xpass = stale xfail finding. Check skip reasons against current code for fixed limitations.",
+        "activeForm": "Hunting stale xfails"
+      }
+    },
+    {
+      "index": 30,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "TaskCreate",
+      "content": "Task #4 created successfully: Stale-xfail pass: run expectedFailure tests 3x",
+      "is_error": false
+    },
+    {
+      "index": 31,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "TaskCreate",
+      "tool_input": {
+        "subject": "Write FINDINGS.md report",
+        "description": "Part 5: ranked findings table, per-finding repro+evidence, first-PR shortlist (no code), hand-verify commands for Will, sweep stats.",
+        "activeForm": "Writing findings report"
+      }
+    },
+    {
+      "index": 32,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "TaskCreate",
+      "content": "Task #5 created successfully: Write FINDINGS.md report",
+      "is_error": false
+    },
+    {
+      "index": 33,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "TaskUpdate",
+      "tool_input": {
+        "taskId": "1",
+        "status": "in_progress"
+      }
+    },
+    {
+      "index": 34,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "TaskUpdate",
+      "content": "Updated task #1 status",
+      "is_error": false
+    },
+    {
+      "index": 35,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 36,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "grep -rn \"expectedFailure\" test/ --include=\"*.py\" | wc -l; grep -rn \"unittest.skip\" test/ --include=\"*.py\" | wc -l",
+      "output": "      42\n     538",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 37,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "grep -rn \"TODO\" tinygrad/schedule/ tinygrad/uop/ tinygrad/codegen/ --include=\"*.py\" | wc -l",
+      "output": "      64",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 38,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "git log --oneline --since=\"3 months ago\" -- tinygrad/schedule/ tinygrad/uop/ tinygrad/codegen/ | wc -l; ls test/external/ | grep -i fuzz; ls test/ | grep -i fuzz",
+      "output": "     243\nexternal_fuzz_ampt.py\nexternal_fuzz_beam_timeout_recovery.py\nexternal_fuzz_hcq_mp.py\nexternal_fuzz_hcq_signals.py\nexternal_fuzz_qcom_cpu_cache.py\nexternal_fuzz_sdma_warm_start.py\nexternal_fuzz_tlsf.py\nfuzz_fast_idiv.py\nfuzz_graph.py\nfuzz_kfd.py\nfuzz_shape_ops.py\nfuzz_symbolic.py\nfuzz_symbolic_symbolic_div.py",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 39,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "gh issue list -R tinygrad/tinygrad --limit 100 --state open --json number,title,labels 2>&1 | head -c 3000",
+      "output": "[{\"labels\":[],\"number\":16542,\"title\":\"can't save pickled jit to disk when RAM < VRAM\"},{\"labels\":[{\"id\":\"LA_kwDOEjAjqs8AAAACkdNKQg\",\"name\":\"real issue\",\"description\":\"\",\"color\":\"aaaaaa\"}],\"number\":16520,\"title\":\"Random seed reuse\"},{\"labels\":[],\"number\":16335,\"title\":\"JIT fails for latest openpilot model on QCOM\"},{\"labels\":[{\"id\":\"LA_kwDOEjAjqs8AAAACkdNKQg\",\"name\":\"real issue\",\"description\":\"\",\"color\":\"aaaaaa\"}],\"number\":16266,\"title\":\"IMAGE=1 prevents weight dedup in pkl\"},{\"labels\":[{\"id\":\"LA_kwDOEjAjqs8AAAACkdNKQg\",\"name\":\"real issue\",\"description\":\"\",\"color\":\"aaaaaa\"}],\"number\":16228,\"title\":\"Conv-backward gradient norm hangs the Metal GPU (rangeify over-fusion)\"},{\"labels\":[],\"number\":16193,\"title\":\"TIP: CONST related changes\"},{\"labels\":[],\"number\":14971,\"title\":\"TIP: Unified Renderer API\"},{\"labels\":[],\"number\":14817,\"title\":\"TIP: Recursive Scheduling\"},{\"labels\":[],\"number\":14816,\"title\":\"masked_select GPU times out for large tensors\"},{\"labels\":[],\"number\":14470,\"title\":\"Problem with gan-style net\"},{\"labels\":[],\"number\":14215,\"title\":\"TIP: add PARAM/CALL to give tinygrad some hierarchy\"},{\"labels\":[],\"number\":13707,\"title\":\"Fix JIT to assert if the schedulecaches don't match\"},{\"labels\":[],\"number\":13695,\"title\":\"Llama 405B fits in memory of 8 MI350X with NULL backend\"},{\"labels\":[],\"number\":13606,\"title\":\"[WEBGPU] AttributeError: 'tinygrad.runtime.autogen.webgpu' has no attribute 'wgpuCreateInstance' when running examples.compile_efficientnet with WEBGPU=1\"},{\"labels\":[],\"number\":13513,\"title\":\"sharding empty uses double peak mem and residual mem\"},{\"labels\":[],\"number\":13409,\"title\":\"Onnx ScatterND infinite loop in graph_rewrite\"},{\"labels\":[],\"number\":13263,\"title\":\"NV,PCI,NAK -> WPR2 is not initialized\"},{\"labels\":[],\"number\":13179,\"title\":\"Variable - expression equality bug?\"},{\"labels\":[],\"number\":13165,\"title\":\"sink(arg=KernelInfo(name=\\\"test\\\")) does not overwrite the kernel name in src\"},{\"labels\":[],\"number\":12871,\"title\":\"CUDA=1 beautiful_mnist fails on GeForce MX550 with CUDA_ERROR_UNSUPPORTED_PTX_VERSION\"},{\"labels\":[],\"number\":12743,\"title\":\"indexing on tensors symbolic shapes from outerworld ranges\"},{\"labels\":[],\"number\":12704,\"title\":\"Latest openpilot model does not compile with DEV=CPU\"},{\"labels\":[],\"number\":12689,\"title\":\"`Special` Uop's Lambda Input Arg validation for Metal Renderer\"},{\"labels\":[],\"number\":12649,\"title\":\"DEV=AMD AMD_IFACE=USB hangs and crashes on model compile\"},{\"labels\":[],\"number\":12514,\"title\":\"inconsistent SPLIT_REDUCEOP\"},{\"labels\":[],\"number\":12485,\"title\":\"where closure folding\"},{\"labels\":[],\"number\":12409,\"title\":\"gradients through where when one of the branches is nan\"},{\"labels\":[],\"number\":12296,\"title\":\"max backward can underflow\"},{\"labels\":[],\"number\":12237,\"title\":\"`error: call to 'sqrt' is ambiguous` while running `whisper.py` on OpenCL\"},{\"labels\":[],\"number\":11966,\"title\":\"Bug in GPU dims limiting\"},{\"labels\":[],\"number\":11908,\"title\":\"Beam cache doesn't invalidate when optimiza",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 40,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 41,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    }
+  ],
+  "metadata": {
+    "task": "phase-2 pre-flight: ff master to upstream, verify venv/devices, create scratch/hunt"
+  }
+}

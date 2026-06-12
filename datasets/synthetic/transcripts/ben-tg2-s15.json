@@ -1,0 +1,131 @@
+{
+  "id": "ben-tg2-s15",
+  "source": "synthetic",
+  "events": [
+    {
+      "index": 0,
+      "raw": null,
+      "kind": "user_message",
+      "text": "Cross-platform audit of the F2 fix branch — four axes. Verifier mode.\n\nPreconditions (STOP and report if unmet): the fix + regression test are\nCOMMITTED on a branch (record its name and HEAD sha); the working tree has\nno uncommitted changes to tracked files.\n\nAllowed mutations: /tmp/xplat-test/** ; log/report files under scratch/hunt/ ;\n`uv python install <version>` (uv-managed interpreters only) ;\n`git worktree add/remove` rooted under /tmp/xplat-test/ plus `git worktree\nprune` at cleanup. Forbidden: edits to tracked files; anything touching\n.venv (inside the repo use --no-sync if you must run uv at all); git push;\nshell profiles. All matrix runs use `uv run --no-project --python <V>\n--with-editable <worktree> --with pytest` so no project environment is ever\nconsulted or mutated.\n\nStep 0 — Host detection and setup\n- uname -sm → Darwin arm64 = \"M1 leg\"; Linux x86_64 = \"Codespace leg\".\n  Record which leg this run is. The other leg remains outstanding; say so\n  in the report.\n- git fetch upstream; record upstream/master HEAD.\n- BASE = $(git merge-base upstream/master <fix-branch>). Create worktrees:\n  /tmp/xplat-test/pre  at BASE  (pre-fix)\n  /tmp/xplat-test/post at <fix-branch> (post-fix)\n- Sanity: `git diff BASE..<fix-branch> --stat` → expected: exactly the fix\n  file + the test file. Anything else: STOP, report the stray paths.\n\nAXIS 4 — Enumerate the matrix we'll actually be judged by\n- Parse .github/workflows/*.yml. For each job record: runs-on,\n  python-version, notable env flags, and the test commands it runs. Write\n  the table to scratch/hunt/ci_matrix.md.\n- Flag specifically: every Python version CI uses; every macOS job; the\n  process-replay job (mark RESIDUAL — it compares against upstream master\n  inside their PR context and cannot be exercised before the PR exists).\n- Derive VERSIONS = (CI's Python versions) ∪ {3.11, 3.12, 3.13, 3.14}\n  intersected with requires-python. `uv python install` any that are\n  missing locally; record what was installed.\n\nAXIS 3 — Backend axis killed by construction (static audit, pass/fail\nper item, quote the offending line on any fail)\nRead the regression test in the post worktree and verify:\n  a. imports no Tensor/device/engine modules — only what\n     deconstruct_function needs\n  b. sets no env flags (no PCONTIG, no device vars) and creates no Tensors\n  c. calls deconstruct_function (or the rebuilt function) directly\n  d. the synthetic victim's missed global sits inside a genexpr-in-a-lambda\n     (depth 2 on every supported Python — not a listcomp, which 3.12+\n     inlines and would make the test vacuous there)\n  e. assertions are membership-based ('NAME' in harvested globals /\n     NameError raised), not exact-dict comparisons\n  f. a short comment explains the genexpr choice\nAlso audit the fix diff: confined to the deconstruct_function harvest;\nclosure assert and TEST_PICKLE line untouched; no drive-by refactors.\n\nAXIS 1 — Python-version matrix (the real platform axis)\nFor each V in VERSIONS, against EACH worktree (pre, post):\n  1. Regression test:\n     uv run --no-project --python V --with-editable <worktree> --with pytest \\\n       python -m pytest <post-worktree path to the test file> -q -k <test name>\n     Expected: FAIL against pre (record the failure reason — it must be the\n     intended miss, not a collection/import error), PASS against post.\n     This must hold on EVERY V — that is the point of the genexpr victim.\n  2. Harvest-delta audit: prefer Will's existing 832-callback walker from\n     scratch/hunt/ if present (adapt invocation); if absent, write a small\n     dump script in /tmp/xplat-test/ that imports tinygrad from the active\n     worktree, walks all registered PatternMatcher callbacks, and emits\n     JSON {callback: sorted(harvested global names)}. Run per (V, worktree);\n     diff pre vs post per V.\n     Expected: on 3.11, exactly one callback differs — remove_bufferize,\n     gaining exactly {'AxisType'}; on 3.12+, empty delta (already inlined\n     to depth 1). Any oth…[truncated for dataset]"
+    },
+    {
+      "index": 1,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 2,
+      "raw": null,
+      "kind": "assistant_message",
+      "text": "Verifier mode. Checking the preconditions before anything else — they gate the entire protocol."
+    },
+    {
+      "index": 3,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "git status --porcelain; echo \"--branches--\"; git branch -a -v | cat; echo \"--remotes--\"; git remote -v",
+      "output": "?? diff_test.py\n--branches--\n* master                                                      6e1b61f16 [behind 1] cleanup some amd deps (#16563)\n  remotes/upstream/HEAD                                       -> upstream/master\n  remotes/upstream/abstractions_4                             4b960a62e work\n  remotes/upstream/add_local_buffer                           e4ec4d2c5 remove noops\n  remotes/upstream/after_qol                                  890897553 this work?\n  remotes/upstream/algebraic_upat                             86d1e42ed Merge branch 'master' into algebraic_upat\n  remotes/upstream/all_bv_no_idx                              1d55b5618 junk\n  remotes/upstream/all_sink                                   2a0e7491f gemm assign\n  remotes/upstream/amd_isel                                   1cd10a2e3 amd isel renderer\n  remotes/upstream/amd_refac                                  113e15a81 line\n  remotes/upstream/amd_sqtt                                   2f8531972 Merge remote-tracking branch 'origin/master' into amd_sqtt\n  remotes/upstream/amd_uop                                    f0b941643 Merge branch 'master' into amd_uop\n  remotes/upstream/amd_uop_cleanups                           e6806015a colors\n  remotes/upstream/assign_copy                                ca906371f fix assign copy\n  remotes/upstream/assign_try_3                               ca36ef018 found_assign\n  remotes/upstream/before2                                    dc68b7ef9 in_loop\n  remotes/upstream/better_spec                                c24ac1684 more syntactic sugar for pyrender\n  remotes/upstream/better_syn                                 37930867c Merge branch 'master' into better_syn\n  remotes/upstream/broadcast_shape_2                          770dac0e0 broadcast\n  remotes/upstream/bt_ei                                      cb5d827ed use buf_target in expand_index\n  remotes/upstream/buf_heur                                   9cd6e7c24 better cost function\n  remotes/upstream/bump_nv_2404                               4fc25543a bump gpuocelot\n  remotes/upstream/cache_reshape                              2c8ad1b41 _apply_movement_op cache\n  remotes/upstream/call_inline                                2fe45b066 Merge branch 'master' into call_inline\n  remotes/upstream/call_is_kernels                            a29986f07 small changes and test fixes from kernel is call\n  remotes/upstream/callify                                    8395071f7 recursive stuff works\n  remotes/upstream/cast_vec_as_cast                           bd9c4ab2e fix that\n  remotes/upstream/cat_mop                                    37a40bf97 early lower cat\n  remotes/upstream/changes_from_rangify                       260da2017 fix unit test dtypes\n  remotes/upstream/check_clsetarg                             e0bc99b6c check clSetKernelArg\n  remotes/upstream/check_dims                                 e051a3536 Merge branch 'master' into check_dims\n  remotes/upstream/clean_spec                                 abb4d3047 hotfix: slightly looser load spec for AMD bfloat16\n  remotes/upstream/clone_tg                                   f082cbcb3 respect the 8x8 tiles\n  remotes/upstream/contig_on_after                            8548d9730 handle contig on after\n  remotes/upstream/continue_mat                               0eec0e3dc continue work on amd_uop_matmul\n  remotes/upstream/deepsek                                    e401546bf deepsek work\n  remotes/upstream/default_late_allreduce                     e2e69dfe5 Merge branch 'master' into default_late_allreduce\n  remotes/upstream/delete_kernel_py                           652e395ef not a part of regen\n  remotes/upstream/delete_ones                                e738b2d4a Merge branch 'master' into delete_ones\n  remotes/upstream/delete_slow_rangeify                       1b1752b6f Revert \"remove the on_stack stuff and any retries\"\n  remotes/upstream/demote_op                                  3cfd4c915 warp_num\n  remotes/upstream/d…[truncated for dataset]",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 4,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 5,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 6,
+      "raw": null,
+      "kind": "other",
+      "description": "mode record"
+    },
+    {
+      "index": 7,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 8,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 9,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "git ls-remote --heads origin 2>&1 | head -20",
+      "output": "2c9d2c0d31b1104aa111fd9e94b909821696f01e\trefs/heads/master",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 10,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 11,
+      "raw": null,
+      "kind": "assistant_message",
+      "text": "**STOP — precondition unmet.** No F2 fix branch exists anywhere visible from this machine. Recording the stop per protocol:"
+    },
+    {
+      "index": 12,
+      "raw": null,
+      "kind": "file_diff",
+      "path": "/Users/user/code/tinygrad/scratch/hunt/xplat_report_M1.md",
+      "diff": "+# Cross-platform F2 audit — M1 leg — PRECONDITION STOP (2026-06-11)\n+\n+Protocol: four-axis audit of the F2 fix branch. Outcome: **did not start** — the gating\n+precondition (\"fix + regression test COMMITTED on a branch\") is unmet. No axis was run.\n+\n+## What was checked (read-only)\n+\n+- Host leg: Darwin arm64 → **M1 leg** (Codespace/Linux-x86_64 leg also outstanding).\n+- Working tree: clean of tracked modifications (`?? diff_test.py` only) — that half of\n+  the precondition holds.\n+- Local branches: **only `master`** at `6e1b61f16`. No fix branch.\n+- Fork (origin = gh-user/tinygrad), via `git ls-remote --heads` (pure network read,\n+  nothing fetched): **only `refs/heads/master`** at `2c9d2c0d3` (older than local master).\n+  No fix branch on the fork.\n+- Upstream remote-tracking branches: ~250 tinygrad dev branches, none related to\n+  deconstruct_function/F2 (name scan).\n+- Session record agrees: FINDINGS.md / repro_02.py state \"NO FIX APPLIED (documentation\n+  only)\" — the fix was never written in this checkout, per the standing no-fixes rule.\n+\n+## Ambient observation (not acted on)\n+\n+The upstream/master remote-tracking ref now points at `83971860d` (\"ci: simplify webgpu\n+install (#16557)\") and local master shows \"[behind 1]\" — upstream moved since the last\n+sync. Relevant to the audit's BASE = merge-base computation once the branch exists;\n+nothing was fetched or merged by this session.\n+\n+## To unblock the audit\n+\n+Commit the fix + regression test on a branch (any name; record name + HEAD sha), with a\n+clean tracked tree, then re-run the audit prompt on either leg. Design constraints the\n+audit will enforce (from the protocol, worth honoring at authoring time):\n+- fix confined to the deconstruct_function harvest (uop/ops.py:1331-1338); closure\n+  assert and TEST_PICKLE line untouched; no drive-by refactors\n+- regression test: no Tensor/device imports, no env flags, synthetic victim with the\n+  missed global inside a **genexpr-in-a-lambda** (depth 2 on every Python ≥3.11 —\n+  a listcomp would make the test vacuous on 3.12+ via PEP 709), membership-based\n+  assertions, comment explaining the genexpr choice",
+      "is_error": false
+    },
+    {
+      "index": 13,
+      "raw": null,
+      "kind": "other",
+      "description": "attachment record"
+    },
+    {
+      "index": 14,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 15,
+      "raw": null,
+      "kind": "assistant_message",
+      "text": "# Audit not started — precondition unmet, stopping as instructed\n\n**There is no committed F2 fix branch anywhere visible from this machine.** The protocol gates everything on \"the fix + regression test are COMMITTED on a branch\" — that's false, so no axis was run and nothing beyond the precondition check was touched. Full record written to [xplat_report_M1.md](scratch/hunt/xplat_report_M1.md).\n\nWhat I verified (all read-only):\n\n- **Working tree**: clean of tracked modifications (only the long-standing untracked `diff_test.py`) — this half of the precondition holds.\n- **Local branches**: only `master` at `6e1b61f16`. No fix branch.\n- **Your fork** (`origin` = gh-user/tinygrad), checked via `git ls-remote --heads` — a pure network read, nothing fetched or mutated: exactly one branch, `master` at `2c9d2c0d3`. No fix branch there either, so it isn't a case of \"written on the Codespace but not fetched here.\"\n- **Upstream remote-tracking refs**: ~250 tinygrad dev branches, none related to F2/deconstruct_function by name.\n- **Session record concurs**: FINDINGS.md and repro_02.py both state \"NO FIX APPLIED (documentation only)\" — per your standing no-fixes rule, the fix was never authored in this checkout.\n\nFor when you cut the branch: this run is the **M1 leg** (Darwin arm64); the Linux/x86_64 Codespace leg is outstanding regardless. One ambient observation, not acted on: the upstream/master tracking ref now sits at `83971860d` with local master \"[behind 1]\" — upstream moved since our last sync, which will matter for the audit's `BASE = merge-base` step.\n\nTo unblock: commit the fix + regression test on a branch (any name), keep the tracked tree clean, and re-run this audit prompt on either leg. The stop-report file also lists the design constraints the audit will enforce — worth honoring at authoring time, especially the **genexpr-in-a-lambda** victim (a listcomp victim makes the regression test vacuous on 3.12+ via PEP 709) and keeping the fix confined to the harvest at ops.py:1331-1338 with the closure assert and TEST_PICKLE line untouched.\n\nStopping here per the protocol's STOP clause."
+    },
+    {
+      "index": 16,
+      "raw": null,
+      "kind": "other",
+      "description": "queue-operation record"
+    },
+    {
+      "index": 17,
+      "raw": null,
+      "kind": "other",
+      "description": "queue-operation record"
+    },
+    {
+      "index": 18,
+      "raw": null,
+      "kind": "other",
+      "description": "system record"
+    }
+  ],
+  "metadata": {
+    "task": "cross-platform audit halts: precondition unmet (no fix branch); STOP report"
+  }
+}

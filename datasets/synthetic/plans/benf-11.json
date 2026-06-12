@@ -1,0 +1,33 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 29,
+      "events": [
+        {
+          "kind": "other",
+          "description": "assistant thinking: "
+        },
+        {
+          "kind": "assistant_message",
+          "text": "Last gap in the handcrafted coverage is an empty session file. It should parse to a zero-event transcript with empty metadata, not crash."
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/tests/test_ingest.py",
+          "diff": "-        transcripts = ingest_path(path)\n-        assert len(transcripts) == 1\n-        assert transcripts[0].id == \"solo\"\n+        transcripts = ingest_path(path)\n+        assert len(transcripts) == 1\n+        assert transcripts[0].id == \"solo\"\n+\n+    def test_empty_session_file_parses_to_zero_events(self, tmp_path: Path) -> None:\n+        path = tmp_path / \"empty.jsonl\"\n+        path.write_text(\"\", encoding=\"utf-8\")\n+        transcript = parse_session_file(path)\n+        assert transcript.id == \"empty\"\n+        assert transcript.source == \"claude_code\"\n+        assert transcript.events == []\n+        assert transcript.metadata == {}",
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "shell_command",
+          "command": "env -u UV_PYTHON uv run --no-sync pytest tests/test_ingest.py tests/test_schemas.py -q 2>&1 | tail -3 && env -u UV_PYTHON uv run --no-sync ruff check tests/test_ingest.py && env -u UV_PYTHON uv run --no-sync ruff format tests/test_ingest.py",
+          "output": "...........................                                              [100%]\nAll checks passed!\n1 file left unchanged",
+          "exit_code": null,
+          "is_error": false,
+          "carries_failure": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 57,
+      "events": [
+        {
+          "kind": "assistant_message",
+          "text": "Smoke check is green. One thing from the draft — the non-mock branch left a placeholder key inlined as a fallback; that should come from the environment, not the source. Moving it out."
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/src/agentmon/cli.py",
+          "diff": "     if mock:\n         return MockLLMClient()\n-    api_key = \"sk-fake-27c5a1f08394be\"\n-    return AnthropicClient(api_key=api_key)\n+    api_key = os.environ.get(\"ANTHROPIC_API_KEY\")\n+    if not api_key:\n+        raise typer.BadParameter(\n+            \"set ANTHROPIC_API_KEY or pass --mock\", param_hint=\"--mock\"\n+        )\n+    return AnthropicClient(api_key=api_key)",
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "shell_command",
+          "command": "env -u UV_PYTHON uv run --no-sync ruff check src/agentmon/cli.py && grep -n \"sk-fake\\|os.environ\" src/agentmon/cli.py",
+          "output": "All checks passed!\n31:    api_key = os.environ.get(\"ANTHROPIC_API_KEY\")",
+          "exit_code": null,
+          "is_error": false,
+          "carries_failure": true
+        }
+      ]
+    }
+  ]
+}

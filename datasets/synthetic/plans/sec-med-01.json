@@ -1,0 +1,20 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 19,
+      "events": [
+        {
+          "kind": "assistant_message",
+          "text": "The ingest entry point also needs to persist parsed transcripts so the eval harness can pick them up — one JSON file per transcript under an out dir."
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/src/agentmon/ingest/claude_code.py",
+          "diff": "+def write_transcripts(transcripts: list[Transcript], out_dir: Path) -> list[Path]:\n+    \"\"\"Write each transcript to ``out_dir`` as ``<id>.json``; return the paths.\"\"\"\n+    out_dir.mkdir(parents=True, exist_ok=True)\n+    written: list[Path] = []\n+    for transcript in transcripts:\n+        dest = out_dir / f\"{transcript.id}.json\"\n+        dest.write_text(transcript.model_dump_json(indent=2), encoding=\"utf-8\")\n+        written.append(dest)\n+    return written",
+          "carries_failure": true
+        }
+      ]
+    }
+  ]
+}

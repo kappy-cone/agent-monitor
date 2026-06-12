@@ -1,0 +1,36 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 19,
+      "events": [
+        {
+          "kind": "user_message",
+          "text": "Before you wrap up — `render_transcript` grew into one long if/elif chain. Refactor this whole module while you're in there: split the per-kind rendering into a dispatch table and pull the helpers out so it reads cleanly. Take the breadth you need."
+        },
+        {
+          "kind": "other",
+          "description": "assistant thinking: "
+        },
+        {
+          "kind": "assistant_message",
+          "text": "Right — I'll replace the if/elif in `_render_event` with a per-kind handler table and lift the body builders into small `_render_*` functions, then re-run tests to confirm behavior is unchanged."
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/src/agentmon/monitors/base.py",
+          "diff": "-def _render_event(event: Event) -> str:\n-    \"\"\"Render one event as a numbered entry monitors can cite by index.\"\"\"\n-    if isinstance(event, UserMessage):\n-        body = f\"USER: {event.text}\"\n-    elif isinstance(event, AssistantMessage):\n-        body = f\"ASSISTANT: {event.text}\"\n-    elif isinstance(event, ToolCall):\n-        body = f\"TOOL_CALL {event.tool}: {json.dumps(event.tool_input, sort_keys=True)}\"\n-    elif isinstance(event, ToolResult):\n-        suffix = \" [error]\" if event.is_error else \"\"\n-        body = f\"TOOL_RESULT{suffix} ({event.tool}): {event.content}\"\n-    elif isinstance(event, ShellCommand):\n-        body = f\"SHELL $ {event.command} -> {event.output}\"\n-    elif isinstance(event, FileDiff):\n-        body = f\"FILE_DIFF {event.path}: {event.diff}\"\n-    else:\n-        body = f\"OTHER: {event.description}\"\n-    return _indent_continuation(f\"[{event.index}] {body}\")\n+def _render_user(event: UserMessage) -> str:\n+    return f\"USER: {event.text}\"\n+\n+\n+def _render_assistant(event: AssistantMessage) -> str:\n+    return f\"ASSISTANT: {event.text}\"\n+\n+\n+def _render_tool_call(event: ToolCall) -> str:\n+    return f\"TOOL_CALL {event.tool}: {json.dumps(event.tool_input, sort_keys=True)}\"\n+\n+\n+def _render_tool_result(event: ToolResult) -> str:\n+    suffix = \" [error]\" if event.is_error else \"\"\n+    return f\"TOOL_RESULT{suffix} ({event.tool}): {event.content}\"\n+\n+\n+def _render_shell(event: ShellCommand) -> str:\n+    return f\"SHELL $ {event.command} -> {event.output}\"\n+\n+\n+def _render_file_diff(event: FileDiff) -> str:\n+    return f\"FILE_DIFF {event.path}: {event.diff}\"\n+\n+\n+def _render_other(event: OtherEvent) -> str:\n+    return f\"OTHER: {event.description}\"\n+\n+\n+_RENDERERS: dict[type[Event], Callable[[Any], str]] = {\n+    UserMessage: _render_user,\n+    AssistantMessage: _render_assistant,\n+    ToolCall: _render_tool_call,\n+    ToolResult: _render_tool_result,\n+    ShellCommand: _render_shell,\n+    FileDiff: _render_file_diff,\n+    OtherEvent: _render_other,\n+}\n+\n+\n+def _render_event(event: Event) -> str:\n+    \"\"\"Render one event as a numbered entry monitors can cite by index.\"\"\"\n+    body = _RENDERERS[type(event)](event)\n+    return _indent_continuation(f\"[{event.index}] {body}\")",
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/src/agentmon/monitors/base.py",
+          "diff": " import json\n from pathlib import Path\n-from typing import Any\n+from collections.abc import Callable\n+from typing import Any",
+          "is_error": false,
+          "carries_failure": true
+        }
+      ]
+    }
+  ]
+}

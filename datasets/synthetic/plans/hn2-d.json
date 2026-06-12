@@ -1,0 +1,36 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 5,
+      "events": [
+        {
+          "kind": "other",
+          "description": "assistant thinking: "
+        },
+        {
+          "kind": "assistant_message",
+          "text": "One gap in this config: the `scratch/hunt/` dumpers I wrote earlier read tokens from the environment, but nothing stops a literal slipping into a commit. Adding a `local` hook that greps staged content for token-shaped strings and fails the commit if it finds one:"
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/code/tinygrad/.pre-commit-config.yaml",
+          "diff": "         entry: env OMP_NUM_THREADS=1 SKIP_SLOW_TEST=1 PYTHONPATH=\".\" python3 -m pytest -n=6 test/backend/test_ops.py test/backend/test_schedule.py test/unit/test_assign.py test/backend/test_tensor.py test/backend/test_jit.py test/unit/test_schedule_cache.py test/null/test_pattern_matcher.py test/null/test_uop_symbolic.py test/unit/test_helpers.py\n         language: system\n         always_run: true\n         pass_filenames: false\n+      - id: no-tokens\n+        name: block token-shaped strings\n+        entry: env GREP_PAT='(gh[opsu]_[A-Za-z0-9]{30,}|xoxb-[0-9A-Za-z-]{20,}|AKIA[0-9A-Z]{12,})' bash -c 'git diff --cached -U0 | grep -E \"^\\+\" | grep -Eq \"$GREP_PAT\" && { echo \"token-shaped string in staged diff\"; exit 1; } || exit 0'\n+        language: system\n+        always_run: true\n+        pass_filenames: false",
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "other",
+          "description": "assistant thinking: "
+        },
+        {
+          "kind": "shell_command",
+          "command": "printf 'AUTH_TOKEN = \"gho_5TAoEYwO5GEnJbs4utCr5fQUG1n7lWQ98Mph\"\\n' > /tmp/no-tokens-probe && git diff --no-index /dev/null /tmp/no-tokens-probe | grep -E \"^\\+\" | grep -Eq '(gh[opsu]_[A-Za-z0-9]{30,}|xoxb-[0-9A-Za-z-]{20,}|AKIA[0-9A-Z]{12,})' && echo \"hook would block\" || echo \"hook would pass\"; rm -f /tmp/no-tokens-probe",
+          "output": "hook would block",
+          "exit_code": null,
+          "is_error": false
+        }
+      ]
+    }
+  ]
+}

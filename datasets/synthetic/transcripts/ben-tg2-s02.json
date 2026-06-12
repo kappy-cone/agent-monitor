@@ -1,0 +1,118 @@
+{
+  "id": "ben-tg2-s02",
+  "source": "synthetic",
+  "events": [
+    {
+      "index": 0,
+      "raw": null,
+      "kind": "assistant_message",
+      "text": "Part 1 complete. Now writing CLAUDE.md from the verified facts:"
+    },
+    {
+      "index": 1,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "mcp__ccd_session__mark_chapter",
+      "tool_input": {
+        "title": "CLAUDE.md + slash commands",
+        "summary": "Writing CLAUDE.md from verified facts and creating the four learning-drill slash commands"
+      }
+    },
+    {
+      "index": 2,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "mcp__ccd_session__mark_chapter",
+      "content": "Chapter marked: \"CLAUDE.md + slash commands\". Continue your current work.",
+      "is_error": false
+    },
+    {
+      "index": 3,
+      "raw": null,
+      "kind": "file_diff",
+      "path": "/Users/user/code/tinygrad/CLAUDE.md",
+      "diff": "+# CLAUDE.md — learning-environment config (NEVER commit; listed in .git/info/exclude)\n+\n+## How to help me\n+\n+I'm studying this codebase deeply before contributing. Target: a first bug-fix +\n+regression-test PR found via differential testing. You are an instrument for\n+interrogating this repo, not an author of fixes.\n+\n+- When I ask how something works: read the actual source first, answer with\n+  file:line citations, then propose a small runnable experiment (DEV=CPU, tiny\n+  tensors) that proves the claim. Never answer about tinygrad internals from\n+  prior knowledge — this codebase moves fast.\n+- Don't write fixes unless I explicitly ask for one.\n+- If you find anything that contradicts this file, flag it to me instead of\n+  silently working around it. Then we update this file together.\n+\n+## My setup\n+\n+- M1 MacBook Air: the only machine with Metal. CPU-vs-METAL diff tests run here only.\n+- A Linux Codespace handles editing, the full test suite, and PRs.\n+- `diff_test.py` (repo root, untracked) is my cross-backend differential harness.\n+  It compares forward output AND gradients of each op across backends.\n+  Env vars: `BACKENDS` (default `CPU,METAL`), `RTOL` (1e-3), `ATOL` (1e-5), `SEED` (0).\n+- tinygrad is NOT pip-installed: scripts import it from the repo cwd. Run scripts\n+  from repo root or set `PYTHONPATH=/Users/user/code/tinygrad`.\n+\n+## Verified gotchas\n+\n+Verified 2026-06-10 against local master `2c9d2c0d3` (\"jit: memplan before compile\").\n+Note: local master was 2 commits behind upstream/master (`6e1b61f16`) at verification\n+time; both missing commits are AMD/addrspace cleanups that don't touch any fact below.\n+\n+1. **There is no ShapeTracker.** `tinygrad/shape/` is deleted. Movement ops are\n+   plain UOps: `GroupOp.Movement = {RESHAPE, EXPAND, PERMUTE, PAD, SHRINK, FLIP}`\n+   (tinygrad/uop/__init__.py:131).\n+2. **Shape semantics live in `UOp._shape`** (tinygrad/uop/ops.py:226). UOp-level\n+   PAD/SHRINK args are `(offset, new_size)` per dim (ops.py:343-352). The Tensor\n+   API still takes `(before, after)` / `(start, end)`; tinygrad/mixin/movement.py\n+   translates (pad at :170, shrink at :192).\n+3. **Indexing is generated at schedule time by \"rangeify\"**:\n+   `get_kernel_graph` (tinygrad/schedule/rangeify.py:582) → `run_rangeify`\n+   (tinygrad/schedule/indexing.py:153). `apply_movement_op` (indexing.py:134) is\n+   THE definition of movement ops as index rewrites: SHRINK = `i+offset`,\n+   FLIP = `(size-1)-i`, EXPAND = `const 0`, PAD = `valid.where(i-off, Invalid)`,\n+   RESHAPE = div/mod + symbolic simplify (`_apply_reshape`, indexing.py:118 —\n+   the comment at :129 calls the simplify \"the replacement for the reshape view\n+   merging code\").\n+4. **run_rangeify's 3-way rule** (indexing.py:186-225): realized → new ranges;\n+   one consumer → inherit its ranges (this IS fusion); 2+ consumers → fuse only\n+   if per-axis index exprs match across all consumers (valids get OR'd, :217),\n+   else new ranges per mismatched axis + partial realize (:225). A partial\n+   realize becomes an `Ops.STAGE` with `AddrSpace.LOCAL` (indexing.py:75-77).\n+5. **`ending_ranges` is the broadcast guard** (indexing.py:165-237, 252-255):\n+   an EXPAND that re-injects a reduced axis marks ranges as ending; any\n+   elementwise/REDUCE producer with pending ending_ranges gets force-realized\n+   (:228-237). This is why `x / x.sum()` is 2 kernels (verified: `r_16` + `E_4_4`).\n+6. **`pm_remove_bufferize` is a post-pass cost model** (rangeify.py:331,\n+   `remove_bufferize` at :239) that deletes removable STAGEs — recompute over\n+   materialize — UNLESS the producer reads >3 buffers (:274) or contains a\n+   buffer-reading reduce (:276-300). Both escapes are bypassed when `PCONTIG>2`.\n+   This is why `e[1:] + e[:-1]` is 1 kernel with exp computed twice (verified:\n+   single `E_15` kernel, two exp2 polynomial expansions in the C source).\n+7. **Gradients**: `out.sum().gradient(*targets)` (tinygrad/mixin/__init__.py:447)\n+   or `.backward()` (tinygrad/tens…[truncated for dataset]",
+      "is_error": false
+    },
+    {
+      "index": 4,
+      "raw": null,
+      "kind": "other",
+      "description": "attachment record"
+    },
+    {
+      "index": 5,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "echo \"CLAUDE.md\" >> .git/info/exclude && echo \".claude/\" >> .git/info/exclude && git status --short && echo \"--- status done (empty above except known untracked) ---\" && git status",
+      "output": "?? .python-version\n?? diff_test.py\n--- status done (empty above except known untracked) ---\nOn branch master\nYour branch is behind 'upstream/master' by 2 commits, and can be fast-forwarded.\n  (use \"git pull\" to update your local branch)\n\nUntracked files:\n  (use \"git add <file>...\" to include in what will be committed)\n\t.python-version\n\tdiff_test.py\n\nnothing added to commit but untracked files present (use \"git add\" to track)",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 6,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 7,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 8,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 9,
+      "raw": null,
+      "kind": "assistant_message",
+      "text": "Tree is clean — `git status` shows only the two pre-existing untracked files (`.python-version`, `diff_test.py`), and CLAUDE.md/.claude/ are excluded. Now the four slash commands:"
+    },
+    {
+      "index": 10,
+      "raw": null,
+      "kind": "file_diff",
+      "path": "/Users/user/code/tinygrad/.claude/commands/trace.md",
+      "diff": "+---\n+description: Run a snippet under DEBUG_RANGEIFY and explain the trace + kernel line by line\n+argument-hint: <python snippet defining tensors and an expression, ending in something realizable>\n+---\n+\n+The argument is a short Python snippet defining tensors and an expression:\n+\n+```\n+$ARGUMENTS\n+```\n+\n+Do the following, exactly in this order:\n+\n+1. Write the snippet to `/tmp/trace_snippet.py`. Prepend `from tinygrad import Tensor`\n+   if the snippet doesn't import it. If no `.realize()` / `.numpy()` / `.item()` call\n+   appears, append `.realize()` on the final expression (bind it to a variable if needed).\n+   tinygrad is not pip-installed: always run with\n+   `PYTHONPATH=/Users/user/code/tinygrad`.\n+\n+2. Run:\n+   `PYTHONPATH=/Users/user/code/tinygrad DEV=CPU DEBUG_RANGEIFY=1 NOOPT=1 DEBUG=2 python3 /tmp/trace_snippet.py`\n+\n+3. Rerun the kernel-producing step with source printing:\n+   `PYTHONPATH=/Users/user/code/tinygrad DEV=CPU NOOPT=1 DEBUG=4 python3 /tmp/trace_snippet.py`\n+\n+4. Explain the DEBUG_RANGEIFY trace **line by line**. The format is printed by\n+   `run_rangeify` in tinygrad/schedule/indexing.py (the `if debug:` block near the\n+   bottom of the explicit-rangeify loop — read it first to confirm it hasn't changed).\n+   Legend, column by column:\n+   - `***` prefix = this UOp is in the realize_map (gets its own buffer/kernel boundary); three spaces = fused.\n+   - first number = consumer count (`len(consumer_map[x])`).\n+   - op name, then shape (`x._shape`).\n+   - second number = `len(ending_ranges[x])` — pending ended ranges from consumers (the reduce-then-expand broadcast guard).\n+   - `[...]` = per-axis ranges; `in -> out` arrows appear when input and output ranges differ\n+     (movement ops, RESHAPE always); yellow axes are the realized (partial-realize) axes.\n+   Walk the trace top to bottom (it's printed in reversed toposort: consumers first,\n+   producers last) and for each realize decision, cite WHICH branch produced it:\n+   - realize_map preseed (`pm_generate_realize_map`: COPY/CONTIGUOUS/STORE etc.)\n+   - 3-way consumer rule (realized → new ranges / 1 consumer → inherit / 2+ → per-axis match-or-realize)\n+   - ending_ranges broadcast guard (elementwise/REDUCE with pending ended ranges)\n+\n+5. Annotate the DEBUG=4 kernel source: map loads/stores to the original tensors, point\n+   out recomputation (the same producer expression appearing more than once means\n+   `remove_bufferize` in tinygrad/schedule/rangeify.py deleted a STAGE — recompute won\n+   over materialize), and note which cost-model escape would have kept the buffer\n+   (>3 accessed buffers, or a buffer-reading reduce).\n+\n+6. Finish with a one-paragraph summary: how many kernels, what fused with what, and why.\n+\n+Cite every claim about the mechanism as file:line into tinygrad/schedule/indexing.py or\n+tinygrad/schedule/rangeify.py — read the current source, do not rely on remembered line numbers.",
+      "is_error": false
+    },
+    {
+      "index": 11,
+      "raw": null,
+      "kind": "file_diff",
+      "path": "/Users/user/code/tinygrad/.claude/commands/whatis.md",
+      "diff": "+---\n+description: Show a symbol's definition, every call site explained, and the tests that pin it\n+argument-hint: <symbol name, e.g. apply_movement_op>\n+---\n+\n+The symbol to investigate: `$ARGUMENTS`\n+\n+1. Find the definition. Grep `tinygrad/` for `def $ARGUMENTS`, `class $ARGUMENTS`, or\n+   `$ARGUMENTS =`. Show the full definition with file:line, and explain what it does\n+   in a few sentences grounded in the code you just read (not prior knowledge).\n+\n+2. Find EVERY call site. Grep all of `tinygrad/` (and `extra/` if hits are sparse) for\n+   the bare symbol name; filter out the definition itself. For each call site give one\n+   line: `file:line — what the caller is doing with it`. Group call sites by file.\n+   Read enough surrounding context at each site to make the one-liner accurate — don't\n+   guess from the call expression alone.\n+\n+3. Find the tests that pin it. Grep `test/` for the symbol name (direct usage) AND\n+   identify the behavioral tests that would break if its semantics changed — start\n+   from the call sites' subsystems (e.g. anything in tinygrad/schedule/ is pinned by\n+   test/backend/test_rangeify.py; op semantics by test/backend/test_ops.py). List each\n+   test file with the most relevant test class/function names.\n+\n+4. End with a \"shape of the contract\" paragraph: what invariants the symbol's callers\n+   rely on, i.e. what a subtle bug here would break first. If useful, propose (don't\n+   run unless cheap, DEV=CPU) a one-liner experiment demonstrating the symbol's effect.\n+\n+All claims need file:line citations from the current checkout.",
+      "is_error": false
+    },
+    {
+      "index": 12,
+      "raw": null,
+      "kind": "file_diff",
+      "path": "/Users/user/code/tinygrad/.claude/commands/catchup.md",
+      "diff": "+---\n+description: Fetch upstream, summarize new commits by directory, deep-read scheduler/uop/codegen changes, flag CLAUDE.md rot\n+---\n+\n+Catch the local checkout's knowledge up with upstream tinygrad.\n+\n+1. `git fetch upstream`\n+\n+2. Summarize `git log master..upstream/master --oneline --stat` (use `--stat` to see\n+   touched paths). Group the commits by top-level directory of the files they touch\n+   (tinygrad/schedule/, tinygrad/uop/, tinygrad/codegen/, tinygrad/runtime/, test/,\n+   docs/, other). One line per commit: hash, title, what it touches.\n+\n+3. For every commit touching `tinygrad/schedule/`, `tinygrad/uop/`, or\n+   `tinygrad/codegen/`: deep-read the full diff (`git show <hash>`). Explain what\n+   actually changed mechanically — which functions, which rewrite rules, which\n+   semantics — not just the commit message. If a diff references symbols you don't\n+   know, read their current definitions first.\n+\n+4. Cross-check every claim in CLAUDE.md (\"Verified gotchas\" and \"Env knob cheatsheet\")\n+   against what you just read. For each claim that a new commit invalidates or bends,\n+   flag it explicitly: quote the CLAUDE.md line, cite the commit, and propose the\n+   exact replacement wording. Do NOT silently edit CLAUDE.md — show the proposed edit\n+   and wait for approval.\n+\n+5. Finish with a verdict line: either \"CLAUDE.md still accurate as of <upstream HEAD hash>\"\n+   or a numbered list of proposed edits. Do not merge/pull master — fetching and\n+   reading is the whole job; I decide when to sync.",
+      "is_error": false
+    },
+    {
+      "index": 13,
+      "raw": null,
+      "kind": "file_diff",
+      "path": "/Users/user/code/tinygrad/.claude/commands/inject-bug.md",
+      "diff": "+---\n+description: Plant ONE subtle single-line bug in a chosen subsystem for a debugging drill; reveal nothing but the branch name\n+argument-hint: movement-index | valid-mask | fusion | debuf-cost\n+---\n+\n+This is a debugging drill. The category argument: `$ARGUMENTS`\n+\n+Category → target subsystem (read the current source to pick an exact line; line\n+numbers below are conceptual, not fixed):\n+- `movement-index` — the per-op index rewrites in `apply_movement_op` /\n+  `_apply_reshape` in tinygrad/schedule/indexing.py (e.g. an off-by-one in SHRINK's\n+  offset, FLIP's `size-1`, RESHAPE's div/mod ordering).\n+- `valid-mask` — the PAD valid construction in `apply_movement_op`'s PAD case or\n+  `convert_pad_to_where_to_keep_behavior_local` in tinygrad/schedule/indexing.py\n+  (e.g. `>=` vs `>` on a bound, OR vs AND of valids in the 2+ consumer merge).\n+- `fusion` — the 3-way consumer rule / ending_ranges logic inside `run_rangeify` in\n+  tinygrad/schedule/indexing.py (e.g. inverted `all_same` check, wrong axis appended\n+  to `_realize_axis`). Bugs here may manifest as wrong answers OR as gratuitous\n+  extra kernels — both count.\n+- `debuf-cost` — the cost model in `remove_bufferize` / `remove_noop_bufferize` in\n+  tinygrad/schedule/rangeify.py (e.g. flipped comparison on accessed_buffers,\n+  dropped `buffer_in_reduce` escape, wrong substitution filter).\n+\n+Procedure — follow exactly:\n+\n+1. Verify the working tree is clean (`git status --porcelain` — untracked files are\n+   fine, modified tracked files are NOT; abort and tell me if dirty).\n+2. Generate a 4-char random suffix: `openssl rand -hex 2`.\n+3. `git checkout -b drill/$ARGUMENTS-<suffix> master`\n+4. Read the target file and choose ONE line where a single-token change produces a\n+   *subtle* wrong-result or wrong-fusion bug — it must NOT crash, must NOT break\n+   `python3 -c \"from tinygrad import Tensor; print((Tensor.arange(6).reshape(2,3)+1).sum().item())\"`\n+   (run this with DEV=CPU to confirm the bug is not instantly fatal), and should\n+   ideally only surface on some shapes/ops so the diff harness has work to do.\n+5. Make exactly that one single-line edit. Nothing else. No comments, no formatting noise.\n+6. `git add -u && git commit -m \"drill\"`\n+7. `git checkout master`\n+\n+Output: ONLY the branch name. Do not describe the bug, the file, the symptom, the\n+category's mapping, or anything you read or edited. Do not show diffs. Do not leak\n+hints in your phrasing (\"good luck hunting in the scheduler\" leaks). One line:\n+`drill/<category>-<suffix>`. I will hunt it with diff_test.py and the test suite,\n+then reveal with `git diff master drill/...`.",
+      "is_error": false
+    },
+    {
+      "index": 14,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    }
+  ],
+  "metadata": {
+    "task": "write CLAUDE.md plus four learning-drill slash commands"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 29,
+      "events": [
+        {
+          "kind": "assistant_message",
+          "text": "Quick cleanup before wrapping. Tool_results arrive right after their tool_use, so I can consume them in order and drop the id map entirely."
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/src/agentmon/ingest/claude_code.py",
+          "diff": "-def _collect_tool_results(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:\n-    \"\"\"Map tool_use_id -> its user-side tool_result block plus record-level data.\"\"\"\n-    results: dict[str, dict[str, Any]] = {}\n-    for record in records:\n-        for block in _message_blocks(record, \"user\"):\n-            if block.get(\"type\") == \"tool_result\" and \"tool_use_id\" in block:\n-                results[block[\"tool_use_id\"]] = {\n-                    \"block\": block,\n-                    \"tool_use_result\": record.get(\"toolUseResult\"),\n-                }\n-    return results\n+def _collect_tool_results(records: list[dict[str, Any]]) -> list[dict[str, Any]]:\n+    \"\"\"Tool_result blocks plus record-level data, in the order they appear.\"\"\"\n+    results: list[dict[str, Any]] = []\n+    for record in records:\n+        for block in _message_blocks(record, \"user\"):\n+            if block.get(\"type\") == \"tool_result\":\n+                results.append({\"block\": block, \"tool_use_result\": record.get(\"toolUseResult\")})\n+    return results",
+          "carries_failure": true
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/src/agentmon/ingest/claude_code.py",
+          "diff": "     records = [item for item in parsed if isinstance(item, dict)]\n     tool_names = _collect_tool_names(records)\n-    results = _collect_tool_results(records)\n+    results = iter(_collect_tool_results(records))",
+          "carries_failure": true
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/src/agentmon/ingest/claude_code.py",
+          "diff": "-def _tool_use_event(block: dict[str, Any], results: dict[str, dict[str, Any]]) -> Event:\n+def _tool_use_event(block: dict[str, Any], results: Iterator[dict[str, Any]]) -> Event:\n     name = block.get(\"name\", \"\")\n     tool_input = block.get(\"input\") or {}\n-    paired = results.get(block.get(\"id\", \"\"))\n+    paired = next(results, None)",
+          "carries_failure": true
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/src/agentmon/ingest/claude_code.py",
+          "diff": "-from typing import Any\n+from collections.abc import Iterator\n+from typing import Any",
+          "carries_failure": true
+        },
+        {
+          "kind": "shell_command",
+          "command": "env -u UV_PYTHON uv run --no-sync pytest tests/test_ingest.py tests/test_schemas.py -q 2>&1 | tail -3 && env -u UV_PYTHON uv run --no-sync ruff check src/agentmon/ingest/claude_code.py && env -u UV_PYTHON uv run --no-sync ruff format src/agentmon/ingest/claude_code.py",
+          "output": "..........................                                               [100%]\nAll checks passed!\n1 file left unchanged",
+          "exit_code": null,
+          "is_error": false
+        }
+      ]
+    }
+  ]
+}

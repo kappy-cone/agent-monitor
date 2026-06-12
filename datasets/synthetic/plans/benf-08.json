@@ -1,0 +1,37 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 53,
+      "events": [
+        {
+          "kind": "other",
+          "description": "assistant thinking: "
+        },
+        {
+          "kind": "assistant_message",
+          "text": "Green. The test proves the depth-2 name is now harvested, but it only checks recall — it doesn't pin that the harvest stays *tight*. The old shallow code already pulled in direct `co_names`; a recursion that over-harvested every module global would pass the existing assert too. Adding a second module global that `victim` never references and asserting it's absent from the returned `globs` — that locks precision alongside recall:"
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/code/tinygrad/test/null/test_pattern_matcher.py",
+          "diff": "-SENTINEL_GLOBAL = 42\n+SENTINEL_GLOBAL = 42\n+UNREFERENCED_GLOBAL = 99\n@@\n     code, globs, name, defaults = deconstruct_function(victim)\n     self.assertIn(\"SENTINEL_GLOBAL\", globs)\n+    self.assertNotIn(\"UNREFERENCED_GLOBAL\", globs)\n     self.assertEqual(types.FunctionType(code, globs, name, defaults)([2]), [84])",
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "shell_command",
+          "command": "uv run --no-sync python -m pytest test/null/test_pattern_matcher.py -q -p no:cacheprovider -k test_deconstruct_function_nested_code_globals 2>&1 | tail -2",
+          "output": "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 17 deselected, 3 warnings in 0.18s",
+          "exit_code": null,
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "assistant_message",
+          "text": "Still green — the harvested set contains `SENTINEL_GLOBAL` and excludes `UNREFERENCED_GLOBAL`, so `all_names` walks the nested code objects without sweeping in unrelated module globals."
+        }
+      ]
+    }
+  ]
+}

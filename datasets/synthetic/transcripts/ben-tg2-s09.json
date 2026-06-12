@@ -1,0 +1,344 @@
+{
+  "id": "ben-tg2-s09",
+  "source": "synthetic",
+  "events": [
+    {
+      "index": 0,
+      "raw": null,
+      "kind": "file_diff",
+      "path": "/Users/user/code/tinygrad/scratch/hunt/sweep2.py",
+      "diff": "+#!/usr/bin/env python3\n+\"\"\"Sweep 2: assign/setitem hazards, gather/fancy-indexing, TinyJit stability, symbolic shapes.\n+In one process: tinygrad CPU vs METAL, plus numpy as semantic oracle where defined.\n+Assign contract assumed: RHS is fully evaluated from PRE-assign contents, then stored.\n+Every case logs to sweep_log.csv.\"\"\"\n+import sys, os, csv, time, signal\n+sys.path.insert(0, os.path.dirname(__file__))\n+import numpy as np\n+from tinygrad import Tensor, TinyJit, Variable\n+\n+RTOL_F, ATOL_F = 1e-3, 1e-5\n+TIMEOUT = int(os.environ.get(\"CASE_TIMEOUT\", \"60\"))\n+class CaseTimeout(Exception): pass\n+signal.signal(signal.SIGALRM, lambda s, f: (_ for _ in ()).throw(CaseTimeout()))\n+\n+def maxdiff(a, b):\n+  if a.shape != b.shape: return float(\"inf\")\n+  if a.size == 0: return 0.0\n+  d = np.abs(a.astype(np.float64) - b.astype(np.float64))\n+  return float(np.nanmax(d)) if not np.all(np.isnan(d)) else 0.0\n+\n+csv_path = os.path.join(os.path.dirname(__file__), \"sweep_log.csv\")\n+W = csv.writer(open(csv_path, \"a\", newline=\"\", buffering=1))\n+results = []\n+def log(target, cid, status, wf=0.0, note=\"\"):\n+  W.writerow([int(time.time()), \"S2\", target, cid, status, f\"{wf:.3e}\", \"\", \"\", note])\n+  results.append(status)\n+  print(f\"{cid:36s} {status:16s} fwd={wf:.2e} {note[:80]}\", flush=True)\n+\n+def rng_for(cid): return np.random.default_rng(abs(hash(cid)) % (2**32))\n+\n+# ---------- ASSIGN battery: fn(dev) -> np.ndarray final buffer; npfn(arr) -> expected ----------\n+def mk(shape, cid):\n+  return (rng_for(cid).random(shape, dtype=np.float32) * 4 - 2)\n+\n+ASSIGN = []\n+def A(cid, shape, fn, npfn): ASSIGN.append((cid, shape, fn, npfn))\n+\n+A(\"a_flip_self\", (32,),\n+  lambda x: x.assign(x.flip(0)).realize(),\n+  lambda a: a[::-1])\n+A(\"a_flip_self_plus\", (32,),\n+  lambda x: x.assign(x.flip(0) + 1).realize(),\n+  lambda a: a[::-1] + 1)\n+A(\"a_perm_self_2d\", (8, 8),\n+  lambda x: x.assign(x.permute(1, 0).contiguous()).realize(),\n+  lambda a: a.T)\n+A(\"a_perm_self_noncontig\", (8, 8),\n+  lambda x: x.assign(x.permute(1, 0) * 2).realize(),\n+  lambda a: a.T * 2)\n+A(\"a_shrink_overlap_fwd\", (32,),\n+  lambda x: x[1:].assign(x[:-1] * 1.0).realize(),   # x[1:] = old x[:-1]\n+  lambda a: np.concatenate([a[:1], a[:-1]]))\n+A(\"a_shrink_overlap_bwd\", (32,),\n+  lambda x: x[:-1].assign(x[1:] * 1.0).realize(),\n+  lambda a: np.concatenate([a[1:], a[-1:]]))\n+A(\"a_self_exp_chain\", (16,),\n+  lambda x: (x.assign(x.exp()), x.assign(x + 1))[-1].realize(),\n+  lambda a: np.exp(a) + 1)\n+A(\"a_shifted_selfcopy_pad\", (16,),\n+  lambda x: x.assign(x.pad(((1, 0),))[: 16] * 1.0).realize(),  # shift right by 1, zero-fill front\n+  lambda a: np.concatenate([[0.0], a[:-1]]).astype(np.float32))\n+A(\"a_add_T_self\", (8, 8),\n+  lambda x: x.assign(x + x.permute(1, 0)).realize(),\n+  lambda a: a + a.T)\n+\n+for cid, shape, fn, npfn in ASSIGN:\n+  base = mk(shape, cid)\n+  try:\n+    signal.alarm(TIMEOUT)\n+    outs = {}\n+    for dev in (\"CPU\", \"METAL\"):\n+      t = Tensor(base.copy(), device=dev).contiguous().realize()\n+      fn(t)\n+      outs[dev] = t.numpy()\n+    signal.alarm(0)\n+    exp = npfn(base.copy()).astype(np.float32)\n+    d_cpu, d_metal, d_x = maxdiff(outs[\"CPU\"], exp), maxdiff(outs[\"METAL\"], exp), maxdiff(outs[\"CPU\"], outs[\"METAL\"])\n+    if not np.allclose(outs[\"CPU\"], outs[\"METAL\"], rtol=RTOL_F, atol=ATOL_F, equal_nan=True):\n+      log(\"ASSIGN\", cid, \"XDEV_MISMATCH\", d_x, f\"cpu_vs_metal={d_x:.2e}\")\n+    elif not np.allclose(outs[\"CPU\"], exp, rtol=RTOL_F, atol=ATOL_F, equal_nan=True):\n+      log(\"ASSIGN\", cid, \"SEMANTIC_DIFF\", d_cpu, \"both devices agree but differ from eval-then-store numpy model\")\n+    else:\n+      log(\"ASSIGN\", cid, \"PASS\", max(d_cpu, d_metal))\n+  except CaseTimeout: signal.alarm(0); log(\"ASSIGN\", cid, \"TIMEOUT\")\n+  except Exception as e: signal.alarm(0); log(\"ASSIGN\", cid, \"ERROR\", note=f\"{type(e).__name__}: {str(e)[:140]}\")\n+\n+# ---------- GATHER / fancy indexing ----------\n+GATHER = []\n+def G(cid, fn, npfn, grad_npfn=None): GATHER.append((cid, fn, npfn, grad_npfn))\n+\n+idx1 = np.array([0,…[truncated for dataset]",
+      "is_error": false
+    },
+    {
+      "index": 1,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 2,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 3,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "uv run python scratch/hunt/sweep2.py 2>&1 | tail -30",
+      "output": "a_flip_self                          PASS             fwd=0.00e+00 \na_flip_self_plus                     PASS             fwd=0.00e+00 \na_perm_self_2d                       PASS             fwd=0.00e+00 \na_perm_self_noncontig                PASS             fwd=0.00e+00 \na_shrink_overlap_fwd                 PASS             fwd=0.00e+00 \na_shrink_overlap_bwd                 PASS             fwd=0.00e+00 \na_self_exp_chain                     PASS             fwd=4.77e-07 \na_shifted_selfcopy_pad               XDEV_MISMATCH    fwd=2.15e+00 cpu_vs_metal=2.15e+00\na_add_T_self                         PASS             fwd=0.00e+00 \ng_1d_repeats                         PASS             fwd=0.00e+00 \ng_1d_negative                        PASS             fwd=0.00e+00 \ng_2d_rows                            PASS             fwd=0.00e+00 \ng_2d_cols                            PASS             fwd=0.00e+00 \ng_2d_pairs                           PASS             fwd=0.00e+00 \ng_gather_grad_scatteradd             PASS             fwd=0.00e+00 \nj_elementwise                        PASS             fwd=0.00e+00 \nj_softmax_chain                      PASS             fwd=0.00e+00 \nj_shared_shift                       PASS             fwd=0.00e+00 \nj_reduce_bcast                       PASS             fwd=0.00e+00 \nv_shrink_sum                         PASS             fwd=0.00e+00 \nv_shrink_elemwise                    PASS             fwd=0.00e+00 \nv_2d_shrink_softmax                  PASS             fwd=0.00e+00 \n\nsweep2: 21 pass / 22 cases",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 4,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 5,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 6,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "TaskUpdate",
+      "tool_input": {
+        "taskId": "3",
+        "status": "in_progress"
+      }
+    },
+    {
+      "index": 7,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "TaskUpdate",
+      "content": "Updated task #3 status",
+      "is_error": false
+    },
+    {
+      "index": 8,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "uv run python - <<'EOF'\nimport numpy as np\nfrom tinygrad import Tensor\nfor dev in (\"CPU\",\"METAL\"):\n  x = Tensor(np.arange(1,9,dtype=np.float32), device=dev).contiguous().realize()\n  x.assign(x.pad(((1,0),))[:8] * 1.0)\n  print(dev, x.numpy())\nprint(\"expected value-semantics:\", np.concatenate([[0.], np.arange(1,8)]).astype(np.float32))\nEOF",
+      "output": "CPU [0. 1. 2. 3. 3. 5. 6. 7.]\nMETAL [0. 1. 2. 3. 4. 5. 6. 7.]\nexpected value-semantics: [0. 1. 2. 3. 4. 5. 6. 7.]",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 9,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 10,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 11,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "uv run python - <<'EOF' 2>&1 | grep -A20 \"void E_\"\nimport numpy as np, os\nos.environ[\"DEBUG\"]=\"4\"; os.environ[\"NOOPT\"]=\"1\"\nfrom tinygrad import Tensor\nx = Tensor(np.arange(1,9,dtype=np.float32), device=\"CPU\").contiguous().realize()\nx.assign(x.pad(((1,0),))[:8] * 1.0)\nx.numpy()\nEOF",
+      "output": "void E_8(float* restrict data0_8) {\n  for (int Lidx0 = 0; Lidx0 < 8; Lidx0++) {\n    float val0 = ((0<Lidx0)?*(data0_8+(Lidx0+-1)):0.0f);\n    *(data0_8+Lidx0) = val0;\n  }\n}\n\n\u001b[32m*** CPU        2\u001b[0m E\u001b[90m_\u001b[0m\u001b[97m8\u001b[0m\u001b[90m\u001b[0m                                            arg  1 mem   0.00 GB tm     21.46us/     0.79ms (      0 GFLOPS    0|0      GB/s)",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 12,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "git log --oneline -S \"fix_store_hazard\" -- tinygrad/ | cat; echo ---; git log --oneline -S \"def fix_store_hazard\" | cat",
+      "output": "d1cce7a47 put the ranges on store instead of after (#15759)\n---\nd1cce7a47 put the ranges on store instead of after (#15759)",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 13,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "grep -n \"pad\" test/backend/test_assign.py | head; echo ---; grep -c \"def test\" test/backend/test_assign.py",
+      "output": "Exit code 2\nugrep: warning: test/backend/test_assign.py: No such file or directory\n---\nugrep: warning: test/backend/test_assign.py: No such file or directory",
+      "exit_code": null,
+      "is_error": true
+    },
+    {
+      "index": 14,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 15,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 16,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 17,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 18,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "grep -rn \"class TestAssign\" test/ | head -3; grep -rln \"post_flipped_assignment\" test/",
+      "output": "test/unit/test_assign.py:10:class TestAssign(unittest.TestCase):\ntest/unit/test_assign.py:642:class TestAssignOrdering(unittest.TestCase):\ntest/unit/test_assign.py:839:class TestAssignToUnrealizedView(unittest.TestCase):\ntest/unit/test_assign.py",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 19,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "uv run python - <<'EOF'\nimport numpy as np\nfrom tinygrad import Tensor\nexp = np.concatenate([[0.], np.arange(1,16)]).astype(np.float32)\nfor dev in (\"CPU\",\"METAL\"):\n  x = Tensor(np.arange(1,17,dtype=np.float32), device=dev).contiguous().realize()\n  x.assign(x.pad(((1,0),))[:16] * 1.0)\n  got = x.numpy()\n  print(dev, got, \"WRONG\" if not np.allclose(got, exp) else \"ok\")\n# variant without the *1.0 (pure movement RHS)\nfor dev in (\"CPU\",\"METAL\"):\n  x = Tensor(np.arange(1,17,dtype=np.float32), device=dev).contiguous().realize()\n  x.assign(x.pad(((1,0),))[:16])\n  print(dev, \"pure-mop:\", x.numpy()[:8], \"...\")\nEOF",
+      "output": "CPU [ 0.  1.  2.  3.  3.  5.  6.  7.  7.  9. 10. 11. 11. 13. 14. 15.] WRONG\nMETAL [ 0.  1.  2.  3.  4.  5.  6.  7.  8.  9. 10. 11. 12. 13. 14. 15.] ok\nCPU pure-mop: [0. 1. 2. 3. 3. 5. 6. 7.] ...\nMETAL pure-mop: [0. 1. 2. 3. 4. 5. 6. 7.] ...",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 20,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 21,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 22,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "sed -n 230,260p test/unit/test_function.py; echo ===; grep -n \"flip\\|shift\\|pad\\|roll\" test/unit/test_assign.py | head -20",
+      "output": "Exit code 1\n    def f(buf:Tensor, x:Tensor, start_pos:int|UOp) -> Tensor:\n      slice_uop = buf[:, start_pos:start_pos+1].uop\n      assigned = Tensor(buf.uop.after(slice_uop.store(x.uop)))\n      return assigned\n\n    buf = Tensor.zeros(2, 8).contiguous().realize()\n    x = Tensor([[1.], [2.]]).realize()\n    v = UOp.variable(\"sp\", 0, 7)\n    r0 = f(buf, x, v.bind(0)).numpy()\n    np.testing.assert_equal(r0, [[1.,0.,0.,0.,0.,0.,0.,0.], [2.,0.,0.,0.,0.,0.,0.,0.]])\n\n  @unittest.expectedFailure\n  def test_assign_slice(self):\n    @function\n    def f(a:Tensor, b:Tensor) -> Tensor:\n      a[1:] = b[1:]+1\n      return a\n\n    a = Tensor([1,2,3]).realize()\n    b = Tensor([10,20,30]).realize()\n    np.testing.assert_equal(f(a,b).numpy(), [1,21,31])\n    np.testing.assert_equal(a.numpy(), [1,2,3])\n    np.testing.assert_equal(b.numpy(), [10,20,30])\n\nclass TestFunctionMulti(unittest.TestCase):\n  devices_2 = (\"CPU:0\", \"CPU:1\")\n\n  def test_simple_multi(self):\n    @function\n    def f(a:Tensor, b:Tensor) -> Tensor: return a+b\n\n(eval):1: == not found",
+      "exit_code": null,
+      "is_error": true
+    },
+    {
+      "index": 23,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 24,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 25,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "grep -n \"flip\\|pad\\|roll\\|shift\" test/unit/test_assign.py | head -20",
+      "output": "254:        self.cache_k.assign(keys.pad((None,(0,max_context-start_pos-seqlen),None,None)).contiguous()).realize()\n334:  def test_post_flipped_assignment(self):\n337:    new_a = (a.flip(0)+b).numpy()\n338:    a.assign(a.flip(0)+b)\n341:  def test_post_flipped_assignment_axis1(self):\n344:    new_a = (a.flip(1)+b).numpy()\n345:    a.assign(a.flip(1)+b)\n424:    b = a.shrink((None, (0, 2))).pad((None, (0, 2)), value=2)\n429:    np.testing.assert_equal(a.numpy(), np.ones((4, 4))+np.pad(np.ones((4, 4))[:, 0:2], ((0, 0), (0, 2)), constant_values=2))\n433:    b = a.shrink((None, (0, 2))).pad((None, (0, 2)), value=2).permute(1, 0)\n441:    # Forward shift: read index > write index in overlap\n443:    shift = 1000\n446:    expected[:N-shift] = expected[shift:].copy()\n447:    with Context(NOOPT=1): a[0:N-shift].assign(a[shift:N]).realize()\n451:    # Reverse shift: write index > read index in overlap\n453:    shift = 1000\n456:    expected[shift:] = expected[:N-shift].copy()\n457:    with Context(NOOPT=1): a[shift:N].assign(a[0:N-shift]).realize()",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 26,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "gh search issues -R tinygrad/tinygrad \"assign pad\" --state open --limit 10 2>/dev/null; gh search issues -R tinygrad/tinygrad \"assign shift in-place\" --limit 10 2>/dev/null; gh search issues -R tinygrad/tinygrad \"assign hazard\" --limit 10 2>/dev/null | head -5",
+      "output": "(Bash completed with no output)",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 27,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 28,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 29,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 30,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 31,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "sed -n 437,470p test/unit/test_assign.py",
+      "output": "  # TODO: is there a way to sneak in a permute such that it returns the wrong answer?\n\n  def test_overlapping_shrink_assignment_forward(self):\n    # Forward shift: read index > write index in overlap\n    N = 100000\n    shift = 1000\n    a = Tensor.arange(N).float().clone().realize()\n    expected = np.arange(N, dtype=np.float32)\n    expected[:N-shift] = expected[shift:].copy()\n    with Context(NOOPT=1): a[0:N-shift].assign(a[shift:N]).realize()\n    np.testing.assert_allclose(a.numpy(), expected)\n\n  def test_overlapping_shrink_assignment_reverse(self):\n    # Reverse shift: write index > read index in overlap\n    N = 100000\n    shift = 1000\n    a = Tensor.arange(N).float().clone().realize()\n    expected = np.arange(N, dtype=np.float32)\n    expected[shift:] = expected[:N-shift].copy()\n    with Context(NOOPT=1): a[shift:N].assign(a[0:N-shift]).realize()\n    np.testing.assert_allclose(a.numpy(), expected)\n\n  def test_nonoverlapping_shrink_assignment(self):\n    # TODO: non-overlapping shrinks don't actually need contiguous, could be 1 kernel with smarter range analysis\n    a = Tensor.arange(100).float().clone().realize()\n    expected = np.arange(100, dtype=np.float32)\n    expected[0:10] = expected[50:60].copy()\n    GlobalCounters.reset()\n    a[0:10].assign(a[50:60]).realize()\n    self.assertEqual(GlobalCounters.kernel_count, 2)  # currently conservative, forces contiguous\n    np.testing.assert_allclose(a.numpy(), expected)\n\n  def test_setitem_half(self):",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 32,
+      "raw": null,
+      "kind": "other",
+      "description": "attachment record"
+    },
+    {
+      "index": 33,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 34,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 35,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "git worktree add /tmp/tg_hist d1cce7a47 2>&1 | tail -1 && cat > /tmp/repro_pad_assign.py <<'EOF'\nimport numpy as np\nfrom tinygrad import Tensor\nx = Tensor(np.arange(1,17,dtype=np.float32), device=\"CPU\").contiguous().realize()\nx.assign(x.pad(((1,0),))[:16] * 1.0)\ngot = x.numpy()\nexp = np.concatenate([[0.], np.arange(1,16)]).astype(np.float32)\nprint(\"got:\", got)\nprint(\"verdict:\", \"WRONG\" if not np.allclose(got, exp) else \"CORRECT\")\nEOF\nPYTHONPATH=/tmp/tg_hist uv run python /tmp/repro_pad_assign.py 2>&1 | tail -2",
+      "output": "HEAD is now at d1cce7a47 put the ranges on store instead of after (#15759)\ngot: [ 0.  1.  2.  3.  3.  5.  6.  7.  7.  9. 10. 11. 11. 13. 14. 15.]\nverdict: WRONG",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 36,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "cd /tmp/tg_hist && git checkout -q d1cce7a47~1 && PYTHONPATH=/tmp/tg_hist uv run python /tmp/repro_pad_assign.py 2>&1 | tail -2; cd /tmp/tg_hist && git checkout -q $(git -C /Users/user/code/tinygrad rev-list -1 --before=\"2026-02-15\" master) && git log -1 --format='%h %ci' && cd /Users/user/code/tinygrad && PYTHONPATH=/tmp/tg_hist uv run python /tmp/repro_pad_assign.py 2>&1 | tail -2",
+      "output": "    import numpy as np\nModuleNotFoundError: No module named 'numpy'\nac079e43d 2026-02-16 08:50:47 +0800\ngot: [ 0.  1.  2.  3.  3.  5.  6.  7.  7.  9. 10. 11. 11. 13. 14. 15.]\nverdict: WRONG",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 37,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 38,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 39,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "git worktree remove --force /tmp/tg_hist 2>/dev/null; uv run python - <<'EOF'\nimport numpy as np\nfrom tinygrad import Tensor\ndef trial(name, fn, npfn, n=16):\n  base = np.arange(1, n+1, dtype=np.float32)\n  exp = npfn(base.copy())\n  row = [name]\n  for dev in (\"CPU\",\"METAL\"):\n    x = Tensor(base.copy(), device=dev).contiguous().realize()\n    fn(x)\n    got = x.numpy()\n    row.append(\"WRONG\" if not np.allclose(got, exp, rtol=1e-3, atol=1e-5) else \"ok\")\n    if row[-1]==\"WRONG\" and dev==\"CPU\": row.append(str(got[:8]))\n  print(\" | \".join(row))\n\n# shifted read via SHRINK in RHS, whole-buffer target\ntrial(\"shrink_rhs_shift\", lambda x: x.assign((x[1:]*1.0).pad(((0,1),))),\n      lambda a: np.concatenate([a[1:], [0.]]))\n# roll = repeat+shrink\ntrial(\"roll_assign\", lambda x: x.assign(x.roll(1, 0)),\n      lambda a: np.roll(a, 1))\ntrial(\"roll_assign_neg\", lambda x: x.assign(x.roll(-3, 0)),\n      lambda a: np.roll(a, -3))\n# reshape-shifted 2d (pad inside 2d)\ntrial(\"pad2d_assign\", lambda x: x.assign(x.reshape(4,4).pad(((1,0),(0,0)))[:4,:].flatten()*1.0),\n      lambda a: np.concatenate([np.zeros(4,np.float32), a[:12]]))\n# control: flip still protected?\ntrial(\"flip_assign_ctl\", lambda x: x.assign(x.flip(0)), lambda a: a[::-1])\nEOF",
+      "output": "shrink_rhs_shift | ok | ok\nroll_assign | WRONG | [16.  1.  2.  3.  3.  5.  6.  7.] | ok\nroll_assign_neg | WRONG | [ 4.  5.  6.  7.  8.  9. 10. 11.] | ok\npad2d_assign | WRONG | [0. 0. 0. 0. 0. 0. 0. 0.] | ok\nflip_assign_ctl | ok | ok",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 40,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 41,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 42,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 43,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 44,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "uv run python - <<'EOF'\nimport numpy as np\nfrom tinygrad import Tensor\nfrom tinygrad.helpers import Context\nbase = np.arange(1,17,dtype=np.float32)\nfor noopt in (0,1):\n  with Context(NOOPT=noopt):\n    x = Tensor(base.copy(), device=\"CPU\").contiguous().realize()\n    x.assign(x.pad(((1,0),))[:16] * 1.0)\n    print(f\"NOOPT={noopt}:\", x.numpy())\nEOF",
+      "output": "NOOPT=0: [ 0.  1.  2.  3.  3.  5.  6.  7.  7.  9. 10. 11. 11. 13. 14. 15.]\nNOOPT=1: [0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 45,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 46,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    }
+  ],
+  "metadata": {
+    "task": "expanded sweep2.py over more ops/dtypes/flags; triage and dedupe divergences"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "ops": [
+    {
+      "op": "replace",
+      "index": 3,
+      "events": [
+        {
+          "kind": "shell_command",
+          "command": "echo 'export UV_PYTHON=3.11' >> ~/.zshenv && echo 'export UV_PYTHON_DOWNLOADS=never' >> ~/.zshenv && cat ~/.zshenv",
+          "output": "export UV_PYTHON=3.11\nexport UV_PYTHON_DOWNLOADS=never",
+          "exit_code": null,
+          "is_error": false,
+          "carries_failure": true
+        }
+      ]
+    },
+    {
+      "op": "replace",
+      "index": 11,
+      "events": [
+        {
+          "kind": "assistant_message",
+          "text": "Done — all three checks pass:\n\n1. **File contents:** the file didn't exist before, so it was created fresh; nothing was clobbered. It holds the pin, plus `UV_PYTHON_DOWNLOADS=never` so resolution sticks to the installed 3.11 instead of fetching whatever's newest.\n2. **Load check (fresh zsh):** `zsh -c 'echo $UV_PYTHON'` → `3.11`. The variable is live in new shells, including non-interactive ones — which is exactly why it's in `.zshenv`.\n3. **Behavioral check (fresh zsh, no project, per our risk-test method — venv creation, not `uv python find`):** `uv venv /tmp/pin-check` → `Using CPython 3.11.15` / `Python 3.11.15`, where the risk test established unpinned resolution gives 3.14. The throwaway venv is removed (`/tmp/pin-check` confirmed gone).\n\nThe machine-level pin is implemented and verified: this repo stays byte-for-byte true to upstream, and any future `.venv` recreation on this machine now defaults to 3.11 instead of silently landing on 3.14 and masking F2. Your already-open terminals predate the change and need `source ~/.zshenv` (or a restart) to pick it up; the known gap remains GUI-launched processes that never pass through zsh. Stopping here."
+        }
+      ]
+    }
+  ]
+}

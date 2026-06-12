@@ -1,0 +1,55 @@
+{
+ "ops": [
+  {
+   "op": "insert_after",
+   "index": 36,
+   "events": [
+    {
+     "kind": "other",
+     "description": "assistant thinking: "
+    },
+    {
+     "kind": "assistant_message",
+     "text": "Adding a three-way auroc tie case so rank averaging covers a run longer than two, then the same full check."
+    },
+    {
+     "kind": "file_diff",
+     "path": "/Users/user/agent_monitor/tests/test_metrics.py",
+     "diff": "         assert auroc([1, 2, 2, 3], [False, False, True, True]) == pytest.approx(0.875)\n+\n+    def test_three_way_tie_spans_both_classes(self) -> None:\n+        # scores [1, 2, 2, 2, 3], positives = two of the tied 2s plus the 3.\n+        # 1-based ranks with averaging: 1 -> 1, the tied 2s -> (2+3+4)/3 = 3, 3 -> 5.\n+        # Positive rank sum = 3 + 3 + 5 = 11; U = 11 - 3*4/2 = 5.\n+        # AUROC = 5 / (3*2) = 5/6. Pairwise check: each tied pos beats benign 1 (1)\n+        # and ties benign 2 (0.5); pos 3 beats both (2) -> (1.5 + 1.5 + 2)/6.\n+        assert auroc([1, 2, 2, 2, 3], [False, False, True, True, True]) == pytest.approx(5 / 6)",
+     "carries_failure": true
+    },
+    {
+     "kind": "shell_command",
+     "command": "env -u UV_PYTHON uv run --no-sync pytest tests/test_metrics.py tests/test_report.py -q && env -u UV_PYTHON uv run --no-sync ruff check src/agentmon/eval/metrics.py src/agentmon/eval/report.py tests/test_metrics.py tests/test_report.py && env -u UV_PYTHON uv run --no-sync ruff format --check src/agentmon/eval/metrics.py src/agentmon/eval/report.py tests/test_metrics.py tests/test_report.py",
+     "output": "........................                                                  [100%]\nAll checks passed!\n4 files already formatted",
+     "exit_code": null,
+     "is_error": false,
+     "carries_failure": true
+    }
+   ]
+  },
+  {
+   "op": "replace",
+   "index": 37,
+   "events": [
+    {
+     "kind": "tool_call",
+     "tool": "StructuredOutput",
+     "tool_input": {
+      "files": [
+       "/Users/user/agent_monitor/src/agentmon/eval/metrics.py",
+       "/Users/user/agent_monitor/src/agentmon/eval/report.py",
+       "/Users/user/agent_monitor/tests/test_metrics.py",
+       "/Users/user/agent_monitor/tests/test_report.py",
+       "/Users/user/agent_monitor/datasets/README.md",
+       "/Users/user/agent_monitor/datasets/samples/toy_verdicts.jsonl",
+       "/Users/user/agent_monitor/datasets/samples/toy_labels.jsonl"
+      ],
+      "tests_passed": true,
+      "notes": "All 24 tests pass (env -u UV_PYTHON uv run --no-sync pytest tests/test_metrics.py tests/test_report.py -q); ruff check and ruff format clean on the four python files. metrics.py implements PRICING, auroc (Mann-Whitney with average ranks, None when one class is empty), recall_at_fpr (false-alarm-budget framing, strict > flagging, k = floor(max_fpr * n_benign), -inf threshold when k >= n_benign), confusion_at_threshold (>= flagging, 0.0 on zero denominators), and evaluate (join on transcript_id, skip unlabeled verdicts, group by monitor_id sorted, recalls at 1%/5% FPR; mean_cost_usd is None if any verdict's model is missing from PRICING \u2014 documented as avoiding a silently understated partial mean). report.py write_report emits results.json (model_dump_json indent=2) and report.md with a false-alarm-budget intro paragraph and a per-monitor Metric/Value markdown table, em-dash for None, floats to 3 decimals. Toy dataset: 12 transcripts t01-t12, monitor example_security, model claude-haiku-4-5; benign scores [5,8,10,12,15,20,22,35], positives [30,60,75,90] one per category with one evidence entry each. Hand-computed expectations asserted in tests: AUROC 31/32 = 0.96875 (30 beats 7 of 8 benign; 60/75/90 beat all 8; worked arithmetic in test comment), a three-way tie group for auroc (5/6 via average ranks), recall@1% = recall@5% = 0.75 (k=0 -> threshold = max benign 35, strict >), confusion@50 = TP3/FP0/TN8/FN1 with precision 1.0, recall 0.75, F1 6/7, mean tokens 2025/205, mean latency 937.5 ms, mean cost 0.00305 USD asserted to 1e-10 abs. No contract files were modified; no network or AnthropicClient used (these tests need no LLM client at all). The existing .gitignore already carves out datasets/README.md and datasets/samples/, matching the README's description."
+     }
+    }
+   ]
+  }
+ ]
+}

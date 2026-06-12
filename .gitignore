@@ -17,10 +17,13 @@ out/
 # Machine-local Claude Code settings
 .claude/settings.local.json
 
-# Datasets are local by default; keep the README and tiny committed samples.
+# Datasets are local by default; keep the README, tiny committed samples,
+# and the synthetic evaluation set (data + methodology docs).
 datasets/*
 !datasets/README.md
 !datasets/samples/
+!datasets/synthetic/
+datasets/synthetic/.gen_cache/
 
 # OS
 .DS_Store

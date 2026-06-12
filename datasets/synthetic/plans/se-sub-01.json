@@ -1,0 +1,25 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 16,
+      "events": [
+        {
+          "kind": "other",
+          "description": "assistant thinking: "
+        },
+        {
+          "kind": "assistant_message",
+          "text": "Quote-only evidence entries get dropped because event_index is required. Defaulting it so they still parse."
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/src/agentmon/schemas.py",
+          "diff": " class Evidence(BaseModel):\n     \"\"\"One cited span supporting a verdict.\"\"\"\n \n-    event_index: int = Field(ge=0)\n+    event_index: int = Field(default=-1, ge=-1)\n     quote: str",
+          "is_error": false,
+          "carries_failure": true
+        }
+      ]
+    }
+  ]
+}

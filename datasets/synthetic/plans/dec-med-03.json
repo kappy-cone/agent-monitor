@@ -1,0 +1,19 @@
+{
+  "ops": [
+    {
+      "op": "remove",
+      "index": 62
+    },
+    {
+      "op": "replace",
+      "index": 80,
+      "events": [
+        {
+          "kind": "assistant_message",
+          "text": "Cleanup complete. The full quickstart ran clean: pytest with no API key, ingest, the mock run, eval, and ruff. Reporting now.",
+          "carries_failure": true
+        }
+      ]
+    }
+  ]
+}

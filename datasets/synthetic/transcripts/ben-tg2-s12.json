@@ -1,0 +1,240 @@
+{
+  "id": "ben-tg2-s12",
+  "source": "synthetic",
+  "events": [
+    {
+      "index": 0,
+      "raw": null,
+      "kind": "user_message",
+      "text": "explain the mechanics of finding f2 to me. Specifically what deconstruct_function is for and where else it's used; why the harvest misses\n   a name at nesting depth 2; what a code object's co_consts/co_names contain;\n   why Python 3.12's comprehension inlining (PEP 709) masks the bug; why AxisType\n   is the only victim today and what would create new victims; what a wrong fix\n   could break."
+    },
+    {
+      "index": 1,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 2,
+      "raw": null,
+      "kind": "assistant_message",
+      "text": "Great question for understanding the pattern-matcher infrastructure. Let me re-ground in the source first — all usages of `deconstruct_function`, the interpret path, how PatternMatchers get pickled, and the history of that one-level `co_consts` loop:"
+    },
+    {
+      "index": 3,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "grep -rn \"deconstruct_function\" tinygrad/ --include=\"*.py\"; echo ---; sed -n 1325,1360p tinygrad/uop/ops.py",
+      "output": "tinygrad/uop/upat.py:4:from tinygrad.uop.ops import UPat, UOp, Ops, PatternMatcher, graph_rewrite, deconstruct_function\ntinygrad/uop/upat.py:159:  real_fxn = types.FunctionType(*deconstruct_function(fxn))\ntinygrad/uop/ops.py:1331:def deconstruct_function(fxn:Callable) -> tuple:\ntinygrad/uop/ops.py:1342:  real_fxn = types.FunctionType(*deconstruct_function(fxn))\ntinygrad/uop/ops.py:1375:  def __reduce__(self): return PatternMatcher, ([(x,deconstruct_function(fxn) if fxn.__name__ == \"<lambda>\" else fxn) for x,fxn in self.patterns],)\n---\n      for uu, vv in zip(uop.src, vp):\n        for s in stores: new_stores.extend(vv.match(uu, s))\n        stores, new_stores = new_stores, []\n      res.extend(stores)\n    return res\n\ndef deconstruct_function(fxn:Callable) -> tuple:\n  new_globals = {k:v for k,v in fxn.__globals__.items() if k in fxn.__code__.co_names}\n  for co in fxn.__code__.co_consts:\n    if isinstance(co, types.CodeType): new_globals.update({k:v for k,v in fxn.__globals__.items() if k in co.co_names})\n  # NOTE: optional round trip through pickle!\n  assert fxn.__closure__ is None, \"closures are not supported in pattern matchers\"\n  ret = fxn.__code__, new_globals, fxn.__name__, fxn.__defaults__\n  return pickle.loads(pickle.dumps(ret)) if getenv(\"TEST_PICKLE\") else ret\n\n@functools.cache\ndef upat_interpret(p:UPat, fxn:Callable) -> Callable:\n  real_fxn = types.FunctionType(*deconstruct_function(fxn))\n  if 'ctx' in inspect.signature(real_fxn).parameters:\n    def universal_match(uop, ctx):\n      for match in p.match(uop, {}):\n        if (ret:=real_fxn(ctx=ctx, **match)) is not None: return ret  # pylint: disable=not-callable\n      return None\n  else:\n    def universal_match(uop, _):\n      for match in p.match(uop, {}):\n        if (ret:=real_fxn(**match)) is not None: return ret  # pylint: disable=not-callable\n      return None\n  return universal_match\n\ndef upat_deferred_compile(p:UPat, fxn:Callable, entry:list) -> Callable:\n  def lazy_compile(uop, ctx):\n    from tinygrad.uop.upat import upat_compile\n    entry[1] = upat_compile(p, fxn) or upat_interpret(p, fxn)\n    return entry[1](uop, ctx)\n  return lazy_compile",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 4,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "grep -n \"__reduce__\\|__getstate__\\|__setstate__\\|TEST_PICKLE\" tinygrad/uop/ops.py tinygrad/uop/upat.py tinygrad/helpers.py | head; echo ---; git log --oneline -S \"co.co_names\" -- tinygrad/ | cat; git log --oneline -S \"deconstruct_function\" --follow tinygrad/uop/ops.py 2>/dev/null | head -5",
+      "output": "tinygrad/uop/ops.py:152:  def __reduce__(self):\ntinygrad/uop/ops.py:1163:  def __reduce__(self): return (CallInfo, (None, self.metadata, self.name, self.precompile, self.precompile_backward))\ntinygrad/uop/ops.py:1254:  def __reduce__(self):\ntinygrad/uop/ops.py:1338:  return pickle.loads(pickle.dumps(ret)) if getenv(\"TEST_PICKLE\") else ret\ntinygrad/uop/ops.py:1375:  def __reduce__(self): return PatternMatcher, ([(x,deconstruct_function(fxn) if fxn.__name__ == \"<lambda>\" else fxn) for x,fxn in self.patterns],)\n---\n0f28e9322 add pickle support for pattern matchers [run_process_replay] (#6816)\n0f28e9322 add pickle support for pattern matchers [run_process_replay] (#6816)",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 5,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 6,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 7,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "git log --oneline -S \"for co in fxn.__code__.co_consts\" -- tinygrad/ | cat; echo ---; git show 0f28e9322 --stat | head -8; git show 0f28e9322 -- tinygrad/ops.py | grep -A8 \"def deconstruct_function\" | head -12",
+      "output": "0f28e9322 add pickle support for pattern matchers [run_process_replay] (#6816)\n---\ncommit 0f28e932244e1b4eb37ea9f5c2bd54adb306e8a0\nAuthor: George Hotz <72895+geohot@users.noreply.github.com>\nDate:   Mon Sep 30 21:54:46 2024 +0800\n\n    add pickle support for pattern matchers [run_process_replay] (#6816)\n    \n    * add pickle support for pattern matchers [run_process_replay]\n    \n+def deconstruct_function(fxn:Callable) -> Tuple:\n+  new_globals = {k:v for k,v in fxn.__globals__.items() if k in fxn.__code__.co_names}\n+  for co in fxn.__code__.co_consts:\n+    if isinstance(co, types.CodeType): new_globals.update({k:v for k,v in fxn.__globals__.items() if k in co.co_names})\n+  new_code_obj = pickle.loads(pickle.dumps(fxn.__code__)) if getenv(\"TEST_PICKLE\") else fxn.__code__  # NOTE: optional round trip through pickle!\n+  assert fxn.__closure__ is None, \"closures are not supported in pattern matchers\"\n+  return new_code_obj, new_globals, fxn.__name__, fxn.__defaults__\n+\n class PatternMatcher:",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 8,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "sed -n 1362,1395p tinygrad/uop/ops.py",
+      "output": "class PatternMatcher:\n  def __init__(self, patterns:Sequence[tuple[UPat, Callable|tuple]], compiled=bool(getenv(\"UPAT_COMPILE\", 1))):\n    # if this comes from a pickle, we reconstruct the lambda functions here\n    self.patterns:list[tuple[UPat, Callable]] = [(p,types.FunctionType(*fxn) if isinstance(fxn, tuple) else fxn) for p,fxn in patterns]\n    # NOTE: use of DefaultDict here is very dangerous! all keys will live for the lifetime of the PatternMatcher!\n    self.pdict: dict[Ops, list[list]] = {}\n    # uop is required, arg is optional\n    for p,fxn in self.patterns:\n      assert p.op is not None\n      entry: list = [p, None, p.early_reject]\n      entry[1] = upat_deferred_compile(p, fxn, entry) if compiled else upat_interpret(p, fxn)\n      for uop in p.op: self.pdict.setdefault(uop, []).append(entry)\n\n  def __reduce__(self): return PatternMatcher, ([(x,deconstruct_function(fxn) if fxn.__name__ == \"<lambda>\" else fxn) for x,fxn in self.patterns],)\n\n  @functools.cache  # pylint: disable=method-cache-max-size-none\n  def __add__(self, more:PatternMatcher) -> PatternMatcher: return PatternMatcher(self.patterns+more.patterns)\n\n  def rewrite(self, uop:UOp, ctx=None):\n    if len(pats:=self.pdict.get(uop.op, [])):\n      if (ler:=uop.__dict__.get('_src_ops')) is None: uop.__dict__['_src_ops'] = ler = {u.op for u in uop.src}\n      for _,match,early_reject in pats:\n        if not early_reject.issubset(ler): continue\n        if (ret:=match(uop, ctx)) is not None and ret is not uop: return ret\n    return None\n\n# *** tracking pattern matcher ***\n\nTRACK_MATCH_STATS = ContextVar(\"TRACK_MATCH_STATS\", 2 if VIZ else 0)\nREWRITE_STACK_LIMIT = ContextVar(\"REWRITE_STACK_LIMIT\", 250000)\nmatch_stats:dict[UPat, list[int|float]] = dict()\n\n# TRACK_MATCH_STATS>=2 or VIZ=1 saves all matches\nucount = itertools.count()",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 9,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 10,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 11,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 12,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 13,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "cat > /tmp/depth_demo.py <<'EOF'\nimport sys, types\nGLOBAL_X = 42\n\ndef via_listcomp(items):       # mirrors remove_bufferize: listcomp INSIDE lambda\n  return list(map(lambda i: [GLOBAL_X for _ in range(i)], items))\ndef via_genexp(items):         # genexp INSIDE lambda\n  return list(map(lambda i: list(GLOBAL_X for _ in range(i)), items))\ndef via_direct_comp(items):    # listcomp directly in function body (depth 1)\n  return [GLOBAL_X for _ in items]\n\ndef harvest(fxn):              # exact mirror of ops.py:1332-1334\n  ng = {k: v for k, v in fxn.__globals__.items() if k in fxn.__code__.co_names}\n  for co in fxn.__code__.co_consts:\n    if isinstance(co, types.CodeType):\n      ng.update({k: v for k, v in fxn.__globals__.items() if k in co.co_names})\n  return ng\n\ndef dump(code, d=0):\n  kids = [c for c in code.co_consts if isinstance(c, types.CodeType)]\n  print(\"  \" * d + f\"depth{d} {code.co_name!r}: co_names={code.co_names} co_varnames={code.co_varnames}\")\n  for c in kids: dump(c, d + 1)\n\nprint(\"python\", sys.version.split()[0])\nfor fn in (via_listcomp, via_genexp, via_direct_comp):\n  print(f\"--- {fn.__name__}\")\n  dump(fn.__code__)\n  h = harvest(fn)\n  print(\"   harvest got GLOBAL_X:\", \"GLOBAL_X\" in h)\n  rebuilt = types.FunctionType(fn.__code__, h, fn.__name__, fn.__defaults__)\n  try:\n    rebuilt([2]); print(\"   rebuilt call: ok\")\n  except NameError as e:\n    print(\"   rebuilt call: NameError:\", e)\nEOF\nuv run python /tmp/depth_demo.py",
+      "output": "python 3.11.15\n--- via_listcomp\ndepth0 'via_listcomp': co_names=('list', 'map') co_varnames=('items',)\n  depth1 '<lambda>': co_names=('range',) co_varnames=('i',)\n    depth2 '<listcomp>': co_names=('GLOBAL_X',) co_varnames=('.0', '_')\n   harvest got GLOBAL_X: False\n   rebuilt call: NameError: name 'GLOBAL_X' is not defined\n--- via_genexp\ndepth0 'via_genexp': co_names=('list', 'map') co_varnames=('items',)\n  depth1 '<lambda>': co_names=('list', 'range') co_varnames=('i',)\n    depth2 '<genexpr>': co_names=('GLOBAL_X',) co_varnames=('.0', '_')\n   harvest got GLOBAL_X: False\n   rebuilt call: NameError: name 'GLOBAL_X' is not defined\n--- via_direct_comp\ndepth0 'via_direct_comp': co_names=() co_varnames=('items',)\n  depth1 '<listcomp>': co_names=('GLOBAL_X',) co_varnames=('.0', '_')\n   harvest got GLOBAL_X: True\n   rebuilt call: ok",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 14,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "UPAT_COMPILE=0 uv run python scratch/hunt/repro_02.py 2>&1 | tail -1",
+      "output": "REPRODUCED under PCONTIG=3: NameError: name 'AxisType' is not defined",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 15,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 16,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 17,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 18,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 19,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "cd /tmp && uv run --no-project --python 3.12 python /tmp/depth_demo.py 2>&1 | grep -v \"^Installed\\|^Creating\\|^Downloading\"",
+      "output": "python 3.12.13\n--- via_listcomp\ndepth0 'via_listcomp': co_names=('list', 'map') co_varnames=('items',)\n  depth1 '<lambda>': co_names=('range', 'GLOBAL_X') co_varnames=('i', '_')\n   harvest got GLOBAL_X: True\n   rebuilt call: ok\n--- via_genexp\ndepth0 'via_genexp': co_names=('list', 'map') co_varnames=('items',)\n  depth1 '<lambda>': co_names=('list', 'range') co_varnames=('i',)\n    depth2 '<genexpr>': co_names=('GLOBAL_X',) co_varnames=('.0', '_')\n   harvest got GLOBAL_X: False\n   rebuilt call: NameError: name 'GLOBAL_X' is not defined\n--- via_direct_comp\ndepth0 'via_direct_comp': co_names=('GLOBAL_X',) co_varnames=('items', '_')\n   harvest got GLOBAL_X: True\n   rebuilt call: ok",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 20,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 21,
+      "raw": null,
+      "kind": "assistant_message",
+      "text": "All evidence in hand. Here's the full mechanics, grounded in source.\n\n## What `deconstruct_function` is for, and everywhere it's used\n\n[ops.py:1331-1338](tinygrad/uop/ops.py:1331) takes a function and returns the four ingredients needed to rebuild it from scratch: `(code object, pruned globals dict, name, defaults)`. It was born in `0f28e9322` (\"add pickle support for pattern matchers [run_process_replay]\", Sept 2024) — the one-level loop included, unchanged since — to solve a pickling problem: process replay needs to ship `PatternMatcher`s to another process, and **lambdas can't be pickled by reference** (no importable qualified name). So they're pickled *by value*: code + just enough globals. You can't pickle `fxn.__globals__` wholesale because that's the entire module namespace — module objects, device handles, the works — so it prunes to names the function actually references. That pruning is the whole story of F2.\n\nIt has exactly three call sites today:\n\n1. **`PatternMatcher.__reduce__`** ([ops.py:1375](tinygrad/uop/ops.py:1375)) — the original pickle path. Note the asymmetry: only `fxn.__name__ == \"<lambda>\"` goes by value; **named functions like `remove_bufferize` pickle by reference** and come back whole. So the pickle path was never the danger for F2.\n2. **`upat_interpret`** ([ops.py:1340-1342](tinygrad/uop/ops.py:1340)) — the interpreted match path rebuilds *every* callback via `types.FunctionType(*deconstruct_function(fxn))`.\n3. **`upat_compile`** ([upat.py:158-159](tinygrad/uop/upat.py:158)) — the compiled match path does the same, embedding the rebuilt function as `_fxn` in generated matcher code.\n\n`PatternMatcher.__init__` ([ops.py:1363-1373](tinygrad/uop/ops.py:1363)) routes every pattern through one of those two (deferred compile with interpret fallback, or interpret directly under `UPAT_COMPILE=0`). So a helper built for pickling lambdas became load-bearing for **normal execution of all 832 callbacks** — named or not. That's why the bug fires in a plain `PCONTIG=3` run with no pickling anywhere. I verified path-independence: `UPAT_COMPILE=0 uv run python scratch/hunt/repro_02.py` → same NameError.\n\nWhy route runtime execution through it at all? Two enforcement effects are visible in the code: the `assert fxn.__closure__ is None` at :1336 makes every matcher's no-closure invariant fail fast at registration, and `TEST_PICKLE=1` (:1338) round-trips every callback through pickle so CI can prove replay-safety without actually replaying.\n\n## What `co_names` and `co_consts` contain\n\nA compiled Python function is a `code` object. Two fields matter here:\n\n- **`co_names`**: the global/attribute names this code object's bytecode references — what `LOAD_GLOBAL` and `LOAD_ATTR` look up. Locals are *not* here (they're `co_varnames`), and captured variables aren't either (`co_freevars`).\n- **`co_consts`**: the literal constants — numbers, strings, `None`... **and the code objects of anything nested**: lambdas, `def`s, and (on 3.11) comprehensions and genexps. Nesting forms a tree of code objects.\n\nHere's the actual tree for a function shaped like `remove_bufferize` (my demo, [/tmp/depth_demo.py](/tmp/depth_demo.py), on the venv's 3.11.15):\n\n```\ndepth0 'via_listcomp': co_names=('list', 'map')\n  depth1 '<lambda>':   co_names=('range',)\n    depth2 '<listcomp>': co_names=('GLOBAL_X',)   <- the global lives only here\n```\n\n## Why the harvest misses depth 2\n\nThe harvest at [ops.py:1332-1334](tinygrad/uop/ops.py:1332) is:\n\n```python\nnew_globals = {k:v for k,v in fxn.__globals__.items() if k in fxn.__code__.co_names}       # depth 0\nfor co in fxn.__code__.co_consts:\n    if isinstance(co, types.CodeType): new_globals.update(... if k in co.co_names)          # depth 1\n```\n\nIt walks the **children** of the root code object but never the grandchildren — one loop, no recursion. In `remove_bufferize` ([rangeify.py:293](tinygrad/schedule/rangeify.py:293)), `AxisType` is referenced only inside `[r.arg[-1] == AxisType.REDUCE for r in x[1].ran…[truncated for dataset]"
+    },
+    {
+      "index": 22,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 23,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 24,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 25,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 26,
+      "raw": null,
+      "kind": "other",
+      "description": "mode record"
+    },
+    {
+      "index": 27,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 28,
+      "raw": null,
+      "kind": "other",
+      "description": "mode record"
+    },
+    {
+      "index": 29,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 30,
+      "raw": null,
+      "kind": "other",
+      "description": "mode record"
+    },
+    {
+      "index": 31,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 32,
+      "raw": null,
+      "kind": "other",
+      "description": "mode record"
+    },
+    {
+      "index": 33,
+      "raw": null,
+      "kind": "other",
+      "description": "queue-operation record"
+    },
+    {
+      "index": 34,
+      "raw": null,
+      "kind": "other",
+      "description": "queue-operation record"
+    }
+  ],
+  "metadata": {
+    "task": "explain F2 mechanics: deconstruct_function, depth-2 harvest miss, co_consts"
+  }
+}

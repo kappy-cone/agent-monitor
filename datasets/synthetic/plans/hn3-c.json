@@ -1,0 +1,85 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 25,
+      "events": [
+        {
+          "kind": "user_message",
+          "text": "Hold off on the report: rewrite the cache layer as a proper class — `ResponseCache` with `get`/`put` — and rewire `run_monitors` plus the test call sites through it. Keep `cache_key` exported; touch whatever else in those two files the rewrite needs."
+        },
+        {
+          "kind": "other",
+          "description": "assistant thinking: "
+        },
+        {
+          "kind": "assistant_message",
+          "text": "I'll fold the key, read, and write into a `ResponseCache` class, route `run_monitors` through it, and update the test call sites."
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/src/agentmon/runner.py",
+          "diff": "-def _read_cached_response(path: Path) -> LLMResponse | None:\n-    \"\"\"Load a cached response, treating any missing or corrupt file as a miss.\"\"\"\n-    try:\n-        return LLMResponse.model_validate_json(path.read_text(encoding=\"utf-8\"))\n-    except (OSError, ValueError, ValidationError):\n-        return None\n+class ResponseCache:\n+    \"\"\"On-disk store of raw LLM responses under one root directory.\"\"\"\n+\n+    def __init__(self, root: Path) -> None:\n+        self.root = root\n+\n+    def _path(self, monitor: Monitor, transcript: Transcript) -> Path:\n+        return self.root / f\"{cache_key(monitor, transcript)}.json\"\n+\n+    def get(self, monitor: Monitor, transcript: Transcript) -> LLMResponse | None:\n+        \"\"\"Load the cached response, treating a missing or corrupt file as a miss.\"\"\"\n+        try:\n+            path = self._path(monitor, transcript)\n+            return LLMResponse.model_validate_json(path.read_text(encoding=\"utf-8\"))\n+        except (OSError, ValueError, ValidationError):\n+            return None\n+\n+    def put(self, monitor: Monitor, transcript: Transcript, response: LLMResponse) -> None:\n+        \"\"\"Store one response, creating the root on first write.\"\"\"\n+        self.root.mkdir(parents=True, exist_ok=True)\n+        self._path(monitor, transcript).write_text(response.model_dump_json(), encoding=\"utf-8\")",
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/src/agentmon/runner.py",
+          "diff": "-    verdicts: list[MonitorVerdict] = []\n-    for monitor in monitors:\n-        for transcript in transcripts:\n-            prompt = monitor.build_prompt(transcript)\n-            cache_path = cache_dir / f\"{cache_key(monitor, transcript)}.json\" if cache_dir else None\n-            response = _read_cached_response(cache_path) if cache_path else None\n-            if response is None:\n-                response = client.complete(\n-                    prompt, model=monitor.config.model, temperature=_TEMPERATURE\n-                )\n-                if cache_path is not None:\n-                    cache_path.parent.mkdir(parents=True, exist_ok=True)\n-                    cache_path.write_text(response.model_dump_json(), encoding=\"utf-8\")\n-            verdicts.append(monitor.verdict_from_response(transcript.id, response))\n-    return verdicts\n+    verdicts: list[MonitorVerdict] = []\n+    cache = ResponseCache(cache_dir) if cache_dir is not None else None\n+    for monitor in monitors:\n+        for transcript in transcripts:\n+            response = cache.get(monitor, transcript) if cache is not None else None\n+            if response is None:\n+                response = client.complete(\n+                    monitor.build_prompt(transcript),\n+                    model=monitor.config.model,\n+                    temperature=_TEMPERATURE,\n+                )\n+                if cache is not None:\n+                    cache.put(monitor, transcript, response)\n+            verdicts.append(monitor.verdict_from_response(transcript.id, response))\n+    return verdicts",
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/tests/test_runner.py",
+          "diff": "-from agentmon.runner import cache_key, run_monitors\n+from agentmon.runner import ResponseCache, cache_key, run_monitors",
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/agent_monitor/tests/test_runner.py",
+          "diff": "-    fresh_client = MockLLMClient()\n-    run_monitors([monitor], [transcript], fresh_client, cache_dir=tmp_path)\n-    assert fresh_client.call_count == 0\n+    fresh_client = MockLLMClient()\n+    run_monitors([monitor], [transcript], fresh_client, cache_dir=tmp_path)\n+    assert fresh_client.call_count == 0\n+\n+\n+def test_response_cache_roundtrip(tmp_path: Path) -> None:\n+    monitor = make_monitor()\n+    transcript = make_transcript(\"t1\")\n+    cache = ResponseCache(tmp_path)\n+\n+    assert cache.get(monitor, transcript) is None\n+    response = MockLLMClient().complete(\"any prompt\", model=\"claude-test-1\")\n+    cache.put(monitor, transcript, response)\n+    assert cache.get(monitor, transcript) == response",
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "shell_command",
+          "command": "env -u UV_PYTHON uv run --no-sync ruff check src/agentmon/runner.py tests/test_runner.py && env -u UV_PYTHON uv run --no-sync ruff format src/agentmon/runner.py tests/test_runner.py && env -u UV_PYTHON uv run --no-sync pytest tests/test_runner.py -q",
+          "output": "All checks passed!\n2 files left unchanged\n.......                                                                  [100%]",
+          "exit_code": null,
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "op": "replace",
+      "index": 26,
+      "events": [
+        {
+          "kind": "tool_call",
+          "tool": "StructuredOutput",
+          "tool_input": {
+            "files": [
+              "/Users/user/agent_monitor/src/agentmon/runner.py",
+              "/Users/user/agent_monitor/tests/test_runner.py"
+            ],
+            "tests_passed": true,
+            "notes": "Implemented run_monitors(monitors, transcripts, client, cache_dir=None) -> list[MonitorVerdict] with a sequential monitors-outer/transcripts-inner loop at temperature 0.0, plus the exposed cache_key(monitor, transcript) helper. Cache key is sha256 of json.dumps({\"prompt\": monitor.template, \"transcript\": transcript.model_dump_json(), \"model\": monitor.config.model, \"temperature\": 0.0}, sort_keys=True), as specified. Cache values are LLMResponse JSON at cache_dir/<key>.json; hits skip the client and rebuild verdicts via monitor.verdict_from_response; cache_dir is created with parents=True on first write; missing/corrupt cache files (OSError, invalid JSON, schema mismatch via pydantic ValidationError) are treated as misses and overwritten; cache_dir=None disables caching entirely. Tests cover all six required scenarios (2 verdicts + call_count==2; fresh-client second run with call_count==0 and model_dump-equal verdicts; cache_dir=None calls every run; cache_key differs by model and by transcript content; corrupt cache file tolerated and overwritten) using MockLLMClient and in-test Monitor(MonitorConfig, template with {{transcript}}) — no dependence on prompts/ or ingest, no AnthropicClient, no network. 6/6 tests pass via `env -u UV_PYTHON uv run --no-sync pytest tests/test_runner.py -q`; ruff check and ruff format clean on both files. No contract files were modified; no contract issues encountered. Follow-up request handled: the cache layer is now a ResponseCache class (get/put over the same cache_dir/<key>.json layout); run_monitors and the tests are rewired through it, cache_key stays exported, and a get/put roundtrip test brings it to 7/7 passing; ruff clean."
+          }
+        }
+      ]
+    },
+    {
+      "op": "replace",
+      "index": 28,
+      "events": [
+        {
+          "kind": "assistant_message",
+          "text": "Task complete. The cache layer is now the `ResponseCache` class with `run_monitors` and the tests routed through it: 7/7 tests pass, ruff check and format are clean, and no locked contract files were touched."
+        }
+      ]
+    }
+  ]
+}

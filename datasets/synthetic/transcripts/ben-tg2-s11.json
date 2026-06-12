@@ -1,0 +1,200 @@
+{
+  "id": "ben-tg2-s11",
+  "source": "synthetic",
+  "events": [
+    {
+      "index": 0,
+      "raw": null,
+      "kind": "assistant_message",
+      "text": "All stats in. Writing FINDINGS.md:"
+    },
+    {
+      "index": 1,
+      "raw": null,
+      "kind": "file_diff",
+      "path": "/Users/user/code/tinygrad/scratch/hunt/FINDINGS.md",
+      "diff": "+# FINDINGS — differential hunt, 2026-06-10\n+\n+HEAD: `6e1b61f16` (\"cleanup some amd deps\", synced from upstream/master this session, ff-only).\n+Env: uv venv, Python 3.11.15, torch 2.9.1, numpy 2.4.6, pytest 9.0.3. Devices: CPU + METAL (M1 Air).\n+All sweep evidence: `scratch/hunt/sweep_log.csv` (766 logged comparisons, append-only).\n+Maps and census: `scratch/hunt/MAP.md`, `census.tsv`, `stale_xfail_results.tsv`.\n+\n+## Ranked findings\n+\n+| ID | Sev | Oracle | Symptom (one line) | Repro | Suspected mechanism | Known/new |\n+|----|-----|--------|--------------------|-------|---------------------|-----------|\n+| F1 | **P0** | S2/ASSIGN (CPU vs METAL + numpy semantics) | `x.assign(x.pad(...)[...])` and `x.assign(x.roll(k))` produce wrong numbers on CPU, default flags | `scratch/hunt/repro_01.py` | `fix_store_hazard` unsafe set omits PAD entirely and only treats SHRINK as unsafe when the *target* is shrunken → in-place kernel reads+writes same buffer at shifted indices (rangeify.py:91-98) | **NEW** (no issue, no xfail; maintainers suspect the hole: test_assign.py:437 TODO) |\n+| F2 | P2 (crash, flag-gated) + latent infra bug | O5 PCONTIG ladder | `PCONTIG=3` crashes `NameError: name 'AxisType' is not defined` on both backends whenever the partial-contig branch is reached | `scratch/hunt/repro_02.py` | `deconstruct_function` (uop/ops.py:1331-1338) harvests globals only to nesting depth 1; `AxisType` in remove_bufferize sits in a depth-2 listcomp (rangeify.py:293). Python-3.11-specific (PEP 709 hides it on 3.12+) | **NEW** |\n+| — | null | O1/O2/O3/O4, T7-half | 87-case battery over T1–T8: zero cross-backend, zero NOOPT-vs-opt, zero torch, zero VALIDATE_WITH_CPU divergence; half precision clean | — | — | tinygrad is solid here |\n+| — | null | PART 4 | 39/39 runnable xfails still fail 3/3 — **no stale xfails**; the menu is well-maintained | `stale_xfail_results.tsv` | — | — |\n+\n+## F1 — in-place assign with backward-shifted self-read is wrong on CPU (P0)\n+\n+Minimal repro (full annotated version with 4 variants + control: `repro_01.py`):\n+\n+```python\n+x = Tensor(np.arange(1,17,dtype=np.float32), device=\"CPU\").contiguous().realize()\n+x.assign(x.pad(((1,0),))[:16] * 1.0)      # value semantics: shift right by 1, 0 in front\n+# expected: [0 1 2 3 4 5 ...]\n+# CPU got:  [0 1 2 3 3 5 6 7 7 9 10 11 11 13 14 15]   <- wrong at i=4,8,12 (float4 blocks)\n+```\n+\n+Also wrong via the natural user API: `x.assign(x.roll(1, 0))` → `[16 1 2 3 3 5 6 7 ...]`.\n+\n+Evidence trail:\n+- Generated kernel (DEBUG=4 NOOPT=1) is a single in-place loop, no staging:\n+  `float val0 = ((0<Lidx0)?*(data0_16+(Lidx0-1)):0.0f); *(data0_16+Lidx0) = val0;`\n+  — reads `data0[i-1]`, writes `data0[i]`, on a `restrict` pointer.\n+- Result depends on the optimizer's loop structure ⇒ scheduling UB, not an ALU bug:\n+  default opts → wrong every 4th element (float4 blocks); NOOPT=1 → all zeros (serial\n+  cascade). METAL returns correct values **by thread-scheduling luck** — same\n+  unsynchronized read/write, so it's latent there too.\n+- Mechanism: `fix_store_hazard` (tinygrad/schedule/rangeify.py:91-98) inserts a\n+  `.contiguous()` only when the assign's RHS reaches the target via\n+  `{PERMUTE, FLIP}` — plus `SHRINK` *only if the target itself is shrunken*\n+  (covers `a[1:].assign(a[:-1])`, which passes). PAD never qualifies, and\n+  SHRINK-in-RHS against a whole-buffer target never qualifies (`roll` =\n+  repeat+shrink → hits exactly this). Note the asymmetry with\n+  `realize_store_after_src` (schedule/indexing.py:23), which *does* list PAD\n+  for the COPY/SLICE-source case.\n+- Contract: this is not \"assign UB the user accepts\" — overlapping shifted\n+  self-assignment is pinned as correct for shrunken targets by\n+  test/unit/test_assign.py:439-457 (`test_overlapping_shrink_assignment_forward/_reverse`),\n+  and :437 has the TODO \"is there a way to sneak in a permute such that it\n+  returns the wrong answer?\" — the answer turned out to be PAD/roll, not permute.\n+- History: same wrong output at…[truncated for dataset]",
+      "is_error": false
+    },
+    {
+      "index": 2,
+      "raw": null,
+      "kind": "other",
+      "description": "attachment record"
+    },
+    {
+      "index": 3,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 4,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 5,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "TaskUpdate",
+      "tool_input": {
+        "taskId": "2",
+        "status": "completed"
+      }
+    },
+    {
+      "index": 6,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "TaskUpdate",
+      "content": "Updated task #2 status",
+      "is_error": false
+    },
+    {
+      "index": 7,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "TaskUpdate",
+      "tool_input": {
+        "taskId": "3",
+        "status": "completed"
+      }
+    },
+    {
+      "index": 8,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "TaskUpdate",
+      "content": "Updated task #3 status",
+      "is_error": false
+    },
+    {
+      "index": 9,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "TaskUpdate",
+      "tool_input": {
+        "taskId": "5",
+        "status": "in_progress"
+      }
+    },
+    {
+      "index": 10,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "TaskUpdate",
+      "content": "Updated task #5 status",
+      "is_error": false
+    },
+    {
+      "index": 11,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 12,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 13,
+      "raw": null,
+      "kind": "shell_command",
+      "command": "git status --short; git worktree list; find scratch/hunt -name \"*.begin\" | wc -l; ls scratch/hunt/",
+      "output": "?? .python-version\n?? diff_test.py\n/Users/user/code/tinygrad 6e1b61f16 [master]\n       0\nFINDINGS.md\nMAP.md\n__pycache__\ncase_exec.py\ncases.py\ncensus.err\ncensus.py\ncensus.tsv\ncompare_npz.py\ngh_issues.json\nhalf_runner.py\no1_runner.py\no2_runner.py\nout\nrepro_01.py\nrepro_02.py\nstale_xfail.log\nstale_xfail.py\nstale_xfail_results.tsv\nsweep2.py\nsweep_log.csv\ntodos.txt",
+      "exit_code": null,
+      "is_error": false
+    },
+    {
+      "index": 14,
+      "raw": null,
+      "kind": "file_diff",
+      "path": "/Users/user/.claude/projects/-Users-user-code-tinygrad/memory/tinygrad-env-gotchas.md",
+      "diff": "+---\n+name: tinygrad-env-gotchas\n+description: Environment traps on Will's M1 tinygrad setup — uv venv rebuilds, no GNU timeout, zsh ==, 0-d numpy\n+metadata:\n+  type: project\n+---\n+\n+Environment traps hit during the 2026-06-10 hunt session (Will's M1 Air, repo /Users/user/code/tinygrad):\n+\n+- `uv run --python 3.12 ...` REBUILDS `.venv` and silently drops ad-hoc-installed packages (torch, numpy, pytest are NOT project deps — they were pip-installed into the venv). After any python-version switch, restore with `uv pip install torch==2.9.1 numpy pytest` and re-verify.\n+- macOS has no GNU `timeout` command — use the Bash tool's timeout parameter + SIGALRM inside Python runners (a hung Metal kernel may not respond to SIGALRM; outer kill is the backstop).\n+- zsh eats `==`/`===` as glob qualifiers in plain command lines (error \"== not found\") — use quoted strings or different separators in echo.\n+- `np.random.default_rng().random(())` returns a bare numpy scalar, not a 0-d ndarray; `Tensor()` rejects it — wrap in `np.asarray`. Caused 5 false positives in the sweep harness.\n+- Scripts outside repo root need `PYTHONPATH=/Users/user/code/tinygrad` (tinygrad not pip-installed; imports resolve from cwd).\n+\n+**Why:** these cost real debugging time and will recur in every future sweep/drill session.\n+**How to apply:** check before building harnesses or switching interpreters; see [[tinygrad-hunt-workflow]].",
+      "is_error": false
+    },
+    {
+      "index": 15,
+      "raw": null,
+      "kind": "file_diff",
+      "path": "/Users/user/.claude/projects/-Users-user-code-tinygrad/memory/tinygrad-hunt-workflow.md",
+      "diff": "+---\n+name: tinygrad-hunt-workflow\n+description: Will's phase-2 bug-hunt protocol, artifact locations under scratch/hunt/, and the two live findings F1/F2\n+metadata:\n+  type: project\n+---\n+\n+Will is hunting a first bug-fix+regression-test PR for tinygrad via differential testing. I find+document, never fix. All hunt artifacts live in `scratch/hunt/` (git-excluded): MAP.md (xfail/TODO/churn/issue survey), cases.py + o1_runner/case_exec/compare_npz/sweep2 harnesses, sweep_log.csv (append-only audit), FINDINGS.md (the report).\n+\n+Live findings as of 2026-06-10 (HEAD 6e1b61f16), both NEW (no upstream issue):\n+- **F1 (P0)**: `x.assign(x.pad(...)[...])` / `x.assign(x.roll(k))` → wrong numbers on CPU default flags. Hole in `fix_store_hazard` (rangeify.py ~:91): unsafe set = {PERMUTE, FLIP} (+SHRINK only for shrunken targets); PAD and SHRINK-in-RHS slip through → in-place kernel with shifted self-read. repro_01.py. Broken since ≤2026-02-16.\n+- **F2 (P2 + infra)**: PCONTIG=3 → `NameError: AxisType` at rangeify.py:293; root cause `deconstruct_function` (uop/ops.py:1331) harvests globals only 1 code-object level deep — misses depth-2 listcomp names on Python 3.11 (PEP 709 hides it on 3.12+). Only victim among all 832 PM callbacks (audited). repro_02.py.\n+\n+First-PR ranking in FINDINGS.md: F2 root fix (2-line, clean unit test) > F1 fix (P0, conservative-contiguous precedent exists) > F1 xfail-test-only.\n+\n+**Why:** next session will likely start from \"verify/reduce/fix F1 or F2\" — don't re-derive.\n+**How to apply:** read scratch/hunt/FINDINGS.md first; reuse the harnesses instead of writing new ones. See [[tinygrad-env-gotchas]].",
+      "is_error": false
+    },
+    {
+      "index": 16,
+      "raw": null,
+      "kind": "file_diff",
+      "path": "/Users/user/.claude/projects/-Users-user-code-tinygrad/memory/MEMORY.md",
+      "diff": "+# Memory index\n+\n+- [tinygrad env gotchas](tinygrad-env-gotchas.md) — uv rebuilds .venv on python switch (torch/numpy/pytest are ad hoc), no GNU timeout on macOS, zsh eats ==, 0-d numpy trap, PYTHONPATH for off-root scripts\n+- [tinygrad hunt workflow](tinygrad-hunt-workflow.md) — phase-2 protocol, scratch/hunt/ artifacts, live findings F1 (assign pad/roll hazard, P0) and F2 (PCONTIG=3 NameError / deconstruct_function harvest)",
+      "is_error": false
+    },
+    {
+      "index": 17,
+      "raw": null,
+      "kind": "tool_call",
+      "tool": "TaskUpdate",
+      "tool_input": {
+        "taskId": "5",
+        "status": "completed"
+      }
+    },
+    {
+      "index": 18,
+      "raw": null,
+      "kind": "tool_result",
+      "tool": "TaskUpdate",
+      "content": "Updated task #5 status",
+      "is_error": false
+    },
+    {
+      "index": 19,
+      "raw": null,
+      "kind": "other",
+      "description": "assistant thinking: "
+    },
+    {
+      "index": 20,
+      "raw": null,
+      "kind": "assistant_message",
+      "text": "# Hunt complete: 2 new findings (one P0), backed by 766 logged comparisons\n\n**The headline: `x.assign(x.roll(1))` returns wrong numbers on CPU under default flags** — and tinygrad's well-trodden paths are otherwise remarkably clean. Everything below is documented in [FINDINGS.md](scratch/hunt/FINDINGS.md) with runnable repros; nothing was fixed, per protocol.\n\n## Pre-flight notes\nSynced ff-only to `6e1b61f16` (the exact commit your Phase-1 notes referenced). uv venv passed the gate: Python 3.11.15, tinygrad from the checkout, torch 2.9.1. Both devices agreed on the smoke test; `gh` 2.91.0 present. One disclosure: a `uv run --python 3.12` check mid-session (needed for finding F2) **rebuilt `.venv` and dropped torch/numpy/pytest** — I reinstalled all three at the same versions and re-verified the repros afterward.\n\n## Finding F1 — P0, new: in-place assign with a backward-shifted self-read\n`x.assign(x.pad(((1,0),))[:16] * 1.0)` — and the natural spelling `x.assign(x.roll(1, 0))` — compile to a **single kernel that reads and writes the same buffer at shifted indices**, no staging. CPU is deterministically wrong (every 4th element under default opts — the float4 pattern; all-zeros cascade under NOOPT=1 — proof it's scheduling UB). METAL is right only by thread-scheduling luck. Mechanism: `fix_store_hazard` (rangeify.py:91) guards `{PERMUTE, FLIP}` and SHRINK *only when the target is shrunken* — PAD never qualifies, and roll (= repeat+shrink on a whole-buffer target) slips through. The maintainers pin eval-then-store semantics for shrunken targets (test_assign.py:439-457) and even left a TODO at :437 asking whether the guard has a hole. It does — via PAD. Broken since at least 2026-02-16 (worktree-probed; not a regression, so no bisect). Repro: [repro_01.py](scratch/hunt/repro_01.py), 4 variants + guarded-flip control.\n\n## Finding F2 — flag-gated crash with a genuinely interesting root cause\n`PCONTIG=3` crashes `NameError: name 'AxisType' is not defined` (both backends) — yet rangeify.py imports AxisType. Root cause: `deconstruct_function` (ops.py:1331) rebuilds PatternMatcher callbacks with globals harvested only **one nesting level deep**; `AxisType` sits in a listcomp-inside-a-lambda (depth 2), which is a separate code object on Python 3.11 (the CI pin) but inlined on 3.12+ (PEP 709) — verified both ways. I audited **all 832 registered callbacks**: this is today's only victim. Latent since 2025-10-23; CI never runs PCONTIG. Repro: [repro_02.py](scratch/hunt/repro_02.py).\n\n## Null results (also findings)\n- 87-case battery (T1–T6 + T8) all green under O1 CPU-vs-METAL fwd+grad, O2 torch, O3 NOOPT-vs-opt on both backends, O4 VALIDATE_WITH_CPU, and half-precision T7.\n- **Stale-xfail track: zero.** All 39 runnable `expectedFailure` tests still fail 3/3 — no free PR there, the menu is well-maintained.\n\n## First-PR shortlist (reasoning in FINDINGS.md)\n1. **F2 root fix** — ~2 lines (recurse the harvest or hoist the reference), clean version-pinned unit test, zero design risk.\n2. **F1 fix** — highest severity; regression test mirrors existing contract tests; precedent for the conservative approach already exists (`test_nonoverlapping_shrink_assignment` accepts 2 kernels).\n3. **F1 xfail-test-only** — the timid variant, answering the test_assign.py:437 TODO.\n\nArtifacts: [MAP.md](scratch/hunt/MAP.md) (xfail/TODO/churn/issue survey), [sweep_log.csv](scratch/hunt/sweep_log.csv) (auditable, every case logged), harnesses (`cases.py`, `o1_runner.py`, `case_exec.py`, `compare_npz.py`, `sweep2.py`, `stale_xfail.py`), both repros. Tree is clean — only your pre-existing untracked files show; `scratch/` is in `.git/info/exclude`. The \"For Will to verify by hand\" section in FINDINGS.md has exact commands for every claim. False positives discarded along the way: 7, all harness-side, all documented."
+    },
+    {
+      "index": 21,
+      "raw": null,
+      "kind": "other",
+      "description": "last-prompt record"
+    },
+    {
+      "index": 22,
+      "raw": null,
+      "kind": "other",
+      "description": "ai-title record"
+    },
+    {
+      "index": 23,
+      "raw": null,
+      "kind": "other",
+      "description": "queue-operation record"
+    },
+    {
+      "index": 24,
+      "raw": null,
+      "kind": "other",
+      "description": "queue-operation record"
+    },
+    {
+      "index": 25,
+      "raw": null,
+      "kind": "other",
+      "description": "system record"
+    }
+  ],
+  "metadata": {
+    "task": "compile sweep stats, write FINDINGS.md and session memory files"
+  }
+}

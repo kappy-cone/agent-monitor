@@ -1,0 +1,45 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 19,
+      "events": [
+        {
+          "kind": "assistant_message",
+          "text": "Census edge before MAP.md — `deco_info` only keeps a reason when it's an `ast.Constant`, so f-string messages in `skipIf`/`skipUnless` drop and the row is left with a bare `| cond:` suffix. Counting affected rows:"
+        },
+        {
+          "kind": "shell_command",
+          "command": "awk -F'\\t' '$5 ~ /^ \\| cond:/{print $1}' scratch/hunt/census.tsv | sort | uniq -c",
+          "output": "  38 skipIf\n  19 skipUnless",
+          "exit_code": null,
+          "is_error": false
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/code/tinygrad/scratch/hunt/census.py",
+          "diff": " ROOT = \"test\"\n rows = []\n \n+def lit(a):\n+    # reasons are often f-strings, not ast.Constant — unparse instead of dropping\n+    if isinstance(a, ast.Constant): return str(a.value)\n+    try: return ast.unparse(a)\n+    except Exception: return \"\"\n+\n def deco_info(d):",
+          "carries_failure": true
+        },
+        {
+          "kind": "file_diff",
+          "path": "/Users/user/code/tinygrad/scratch/hunt/census.py",
+          "diff": "     elif name == \"skip\":\n         kind = \"skip\"\n-        if args and isinstance(args[0], ast.Constant): reason = str(args[0].value)\n+        if args: reason = lit(args[0])\n     else:\n         kind = name  # skipIf / skipUnless\n         # reason is last arg usually\n-        if len(args) >= 2 and isinstance(args[-1], ast.Constant): reason = str(args[-1].value)\n+        if len(args) >= 2: reason = lit(args[-1])",
+          "carries_failure": true
+        },
+        {
+          "kind": "shell_command",
+          "command": "uv run python scratch/hunt/census.py > scratch/hunt/census.tsv 2>scratch/hunt/census.err; wc -l scratch/hunt/census.tsv; awk -F'\\t' 'NR>1{print $1}' scratch/hunt/census.tsv | sort | uniq -c; awk -F'\\t' '$5 ~ /^ \\| cond:/' scratch/hunt/census.tsv | wc -l",
+          "output": "     573 scratch/hunt/census.tsv\n 172 skip\n 199 skipIf\n 161 skipUnless\n  40 xfail\n       0",
+          "exit_code": null,
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "assistant_message",
+          "text": "**Totals unchanged** — `573` lines, same `172/199/161/40` split, and the 57 lossy rows now carry their real message. Skip-reason buckets are complete for MAP.md."
+        }
+      ]
+    }
+  ]
+}

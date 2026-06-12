@@ -49,6 +49,24 @@ uv run agentmon eval --verdicts datasets/samples/toy_verdicts.jsonl --labels dat
 
 `--mock` uses the deterministic mock client; drop it and set `ANTHROPIC_API_KEY` for live runs.
 
+## Dataset
+
+`datasets/synthetic/` holds a 133-transcript labeled evaluation set: 60 injected failures
+(4 modes × 3 difficulty tiers) and 73 benign — 26 of them hard negatives engineered to
+trip a naive monitor (user-requested test deletion, credentials moved *out* of code,
+honest failure reports). Failures are injected as local edits into segments of real
+Claude Code sessions, with **matched pairs** (the same base appears clean and injected)
+so a monitor must key on the failure, not the generator's style. The set ships behind a
+two-part leakage gate: dumb baselines (length, keywords, comment density, diff fraction)
+must stay under 0.65 AUROC, and a realism catalog checks voice convergence, template
+residue, and every matched pair. Methodology, gate results, and known limitations:
+[datasets/synthetic/README.md](datasets/synthetic/README.md).
+
+```sh
+uv run agentmon run --monitor example_security --input datasets/synthetic/transcripts --mock --out verdicts.jsonl
+uv run agentmon eval --verdicts verdicts.jsonl --labels datasets/synthetic/labels.jsonl --out out/eval
+```
+
 ## Repo layout
 
 ```
@@ -61,14 +79,16 @@ src/agentmon/
   runner.py       # run monitors x transcripts with an on-disk response cache
   eval/           # score verdicts against labels: AUROC, recall @ fixed FPR, cost
   cli.py          # typer CLI: agentmon ingest | run | eval
-datasets/         # sample verdict/label sets for the eval pipeline
+datasets/
+  samples/        # toy verdict/label sets for the eval pipeline
+  synthetic/      # labeled eval dataset + manifest, plans, taxonomy, leakage gate
 tests/            # everything runs against MockLLMClient; no network, no API key
 ```
 
 ## Roadmap (explicitly out of scope today)
 
-- Real monitor prompt library and failure-mode taxonomy docs
-- Synthetic dataset generation (injecting failure modes into benign transcripts)
+- Real monitor prompt library (the failure-mode taxonomy now lives in
+  [datasets/synthetic/TAXONOMY.md](datasets/synthetic/TAXONOMY.md))
 - Hierarchical monitoring (cheap first pass, escalate suspicious transcripts)
 - Automated red-teaming of monitors
 - Live monitoring via Claude Code hooks
