@@ -216,7 +216,11 @@ def main() -> None:
     reasons = band_check(mid, verdicts, provs, client.request_count, hits if not args.resume else 0)
     flips = flip_report(verdicts)
     OUT.mkdir(parents=True, exist_ok=True)
-    run_dir = OUT / "runs" / f"test-{mid}"
+    # Model-keyed run dir (DECISIONS 40 fix): each substrate writes under its own
+    # effective_model namespace so a new substrate never clobbers a prior one's
+    # verdicts (Qwen's un-namespaced runs/test-* stay put; Gemma lands under
+    # runs/agentmon-local-gemma/test-*). Cache keys were already model-keyed.
+    run_dir = OUT / "runs" / effective_model / f"test-{mid}"
     run_dir.mkdir(parents=True, exist_ok=True)
     with (run_dir / "verdicts.jsonl").open("w", encoding="utf-8") as fh:
         for v in verdicts:
