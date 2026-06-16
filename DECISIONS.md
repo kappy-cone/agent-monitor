@@ -317,3 +317,35 @@ when made; this file is the durable record.
     applied to the security row: PASS (own-TP flips 0/—, 0%). Security's verdicts and numbers
     are unchanged — only the proceed decision flips to PASS. Row 1 (security_vuln) is FINAL.
     Continuing monitor-major to scope_expansion.
+
+## Local Qwen re-pin (2026-06-14/15, local-transfer branch)
+
+36. **Primary re-pinned: gemini-3.1-flash-lite → local Qwen 3.6 35B A3B (NVFP4).** Served
+    by vLLM on the omen (RTX 5090, Ubuntu) and reached from the Mac over an SSH tunnel
+    (`LocalForward 8000`); agentmon is a pure HTTP client (no GPU), so it stays on the Mac
+    with the repo/cache/branch while only inference runs on the GPU box. Rationale: the
+    Gemini free tier's 500 RPD forced one test row per quota-day; the local box is
+    unlimited (full matrix ~17 min at ~0.8s/call warm), $0, self-hosted (data sovereignty),
+    AND cross-family — Qwen is Alibaba, not Google, so it recovers the same-family
+    blind-spot check and subsumes the cancelled Qwen/OpenRouter transfer row (decisions
+    25–26, 32) into the primary. Validated end-to-end via scripts/probe_qwen.py through the
+    tunnel: clean JSON verdict, thinking suppressed by Qwen's chat-template kwarg
+    `enable_thinking:false` (parity with Gemini's reasoning-off; no `<think>` leak), correct
+    model echo, ~18 s one-time cold start then ~0.2–0.8 s/call. NVFP4 MoE booted on consumer
+    Blackwell (sm_120) — the bleeding-edge risk (vLLM NvFp4-MoE backend failures on the
+    5090) did not bite; vLLM nightly + driver-class Blackwell support carried it.
+37. **Served-model name and the logged quant variable.** vLLM serves under
+    `--served-model-name agentnom-local` (a typo for "agentmon"); functionally fine —
+    agentmon addresses it via `model_override="agentnom-local"`, which flows into every
+    cache key (Qwen entries never collide with Gemini's). For the record it maps to
+    `nvidia/Qwen3.6-35B-A3B-NVFP4`. The **NVFP4 4-bit quant** is the logged variable
+    (replacing the dead OpenRouter-provider-pin variable) and a documented quality caveat
+    for the headline — FP8 (~35 GB) doesn't fit the 32 GB card, so 4-bit is forced.
+38. **Methodology preserved across the swap.** Prompts stay FROZEN at the GATE-2 SHAs
+    (33d), byte-identical, applied via `model_override` — no re-iteration, no re-freeze.
+    Split sacred; monitors see content only. Anomaly bands are RE-DERIVED on a Qwen dev∩tg
+    k=3 run (Gemini's bands are not reused; a 4-bit MoE will have different
+    flag/parse-retry/flip rates — parse hardening + JSON-escape tolerance matter more). The
+    Gemini security test row (1/5) and dev tables are retained as the cloud-free-tier
+    comparison point. SSH key (id_ed25519_omen) is convenience-only — the tunnel already
+    carries traffic; it just spares a password on reconnect for long unattended runs.
