@@ -28,12 +28,10 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 from dev_eval import (  # noqa: E402  (reuse the audited helpers)
     LABELS_PATH,
-    MIN_INTERVAL_SECONDS,
-    PRIMARY_EXTRA_BODY,
-    PRIMARY_MODEL,
     PRIMARY_RPD,
     SPLIT_PATH,
     TRANSCRIPTS_DIR,
+    build_live_client,
     n_calls,
     run_cost_usd,
     summarize,
@@ -111,11 +109,11 @@ def frozen_ok(monitor_id: str) -> bool:
     return got == FROZEN[monitor_id]
 
 
-def preexisting_cache_hits(monitor, transcripts) -> int:
+def preexisting_cache_hits(monitor, transcripts, effective_model) -> int:
     hits = 0
     for t in transcripts:
         for sidx in range(K):
-            key = sample_cache_key(monitor, t, sidx, 0.7, attempt=0)
+            key = sample_cache_key(monitor, t, sidx, 0.7, model=effective_model, attempt=0)
             if (CACHE / f"{key}.json").exists():
                 hits += 1
     return hits
@@ -163,6 +161,9 @@ def main() -> None:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--monitor", required=True, choices=ORDER)
+    parser.add_argument(
+        "--local", action="store_true", help="use the local Qwen via the omen tunnel"
+    )
     parser.add_argument("--resume", action="store_true", help="allow pre-existing cache hits")
     args = parser.parse_args()
     mid = args.monitor
@@ -180,26 +181,29 @@ def main() -> None:
     ]
     monitor = load_monitors()[mid]
 
-    hits = preexisting_cache_hits(monitor, transcripts)
+    client, model_override = build_live_client(args.local)
+    effective_model = model_override or monitor.config.model
+
+    hits = preexisting_cache_hits(monitor, transcripts, effective_model)
     if hits and not args.resume:
         sys.exit(
             f"HALT: {hits} pre-existing sample-cache hits for {mid} on the test set before any "
             "call. A fresh test row must be all-fresh; pass --resume only to continue a walled row."
         )
     print(
-        f"preflight OK: {mid} frozen, {len(test_ids)} test transcripts, "
+        f"preflight OK: {mid} frozen, model={effective_model}, {len(test_ids)} test transcripts, "
         f"{hits} pre-existing cache hits (resume={args.resume})"
     )
 
-    from agentmon.llm.openai_compat import OpenAICompatClient
-
-    client = OpenAICompatClient(
-        extra_body=PRIMARY_EXTRA_BODY,
-        min_interval_seconds=MIN_INTERVAL_SECONDS,
-        max_attempts=5,
-        backoff_seconds=5.0,
+    verdicts = run_calibrated(
+        [monitor],
+        transcripts,
+        client,
+        k=K,
+        cache_dir=CACHE,
+        verify=True,
+        model_override=model_override,
     )
-    verdicts = run_calibrated([monitor], transcripts, client, k=K, cache_dir=CACHE, verify=True)
 
     reasons = band_check(mid, verdicts, provs, client.request_count, hits if not args.resume else 0)
     flips = flip_report(verdicts)
@@ -239,24 +243,31 @@ def main() -> None:
                 {
                     "date": today,
                     "label": f"test-{mid}",
-                    "model": PRIMARY_MODEL,
+                    "model": effective_model,
                     "requests": client.request_count,
                 }
             )
             + "\n"
         )
 
-    print(f"\n## test-{mid} — n={len(test_ids)} k={K}")
+    print(f"\n## test-{mid} — n={len(test_ids)} k={K} model={effective_model}")
     print(table)
-    day_total = sum(
-        json.loads(line)["requests"]
-        for line in LEDGER.read_text().splitlines()
-        if line and json.loads(line)["date"] == today
-    )
-    print(
-        f"REQUESTS: row {client.request_count}; quota-day {today} {day_total}/{PRIMARY_RPD}. "
-        f"list-eq cost ${cost:.2f}; actual $0.00."
-    )
+    cost_str = "n/a" if cost is None else f"${cost:.2f}"
+    if args.local:
+        print(
+            f"REQUESTS: row {client.request_count} (local {effective_model} via omen tunnel; "
+            "no rate limit, actual $0.00 self-hosted)."
+        )
+    else:
+        day_total = sum(
+            json.loads(line)["requests"]
+            for line in LEDGER.read_text().splitlines()
+            if line and json.loads(line)["date"] == today
+        )
+        print(
+            f"REQUESTS: row {client.request_count}; quota-day {today} {day_total}/{PRIMARY_RPD}. "
+            f"list-eq cost {cost_str}; actual $0.00."
+        )
     print(
         f"VERIFICATION (report-only): {flips['flips']}/{flips['verif_calls']} flips "
         f"({flips['flip_rate']:.1%}), {flips['mechanical']} mechanical "

@@ -22,6 +22,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import os
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -57,6 +58,48 @@ MIN_INTERVAL_SECONDS = 60.0 / PRIMARY_RPM + 0.2
 #: is accepted — thinking fully disabled, matching the no-extended-thinking
 #: monitor design. See DECISIONS 28.
 PRIMARY_EXTRA_BODY: dict | None = {"reasoning_effort": "none"}
+
+# Local target (DECISIONS 36): Qwen 3.6 35B A3B (NVFP4) served by vLLM on the
+# omen, reached over the SSH tunnel. agentmon is a pure HTTP client, so it runs
+# on the Mac; only inference runs on the GPU box. No rate limit -> no pacing.
+# Thinking is suppressed via Qwen's chat-template kwarg (parity with the
+# primary's reasoning-off config); top_p/top_k are Qwen's non-thinking defaults.
+LOCAL_MODEL = os.environ.get("LOCAL_LLM_MODEL", "agentnom-local")
+LOCAL_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:8000/v1")
+LOCAL_EXTRA_BODY: dict = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "top_p": 0.8,
+    "top_k": 20,
+}
+
+
+def build_live_client(local: bool):
+    """Return (client, default_model_override) for a live run.
+
+    Local uses the omen tunnel with no pacing and the served model name as the
+    override (the frozen frontmatter still names gemini, so the override is how
+    the local model gets addressed). The cloud path returns None so the frozen
+    frontmatter model is used unchanged.
+    """
+    from agentmon.llm.openai_compat import OpenAICompatClient
+
+    if local:
+        client = OpenAICompatClient(
+            base_url=LOCAL_BASE_URL,
+            api_key="local",
+            extra_body=LOCAL_EXTRA_BODY,
+            min_interval_seconds=0.0,
+            max_attempts=5,
+            backoff_seconds=5.0,
+        )
+        return client, LOCAL_MODEL
+    client = OpenAICompatClient(
+        extra_body=PRIMARY_EXTRA_BODY,
+        min_interval_seconds=MIN_INTERVAL_SECONDS,
+        max_attempts=5,
+        backoff_seconds=5.0,
+    )
+    return client, None
 
 
 def fixed_dev_tg_subsample(provs: dict[str, object]) -> list[str]:
@@ -226,6 +269,9 @@ def main() -> None:
     parser.add_argument("--label", required=True, help="run label, e.g. r0-baseline")
     parser.add_argument("--k", type=int, default=1)
     parser.add_argument("--mock", action="store_true")
+    parser.add_argument(
+        "--local", action="store_true", help="use the local Qwen via the omen tunnel"
+    )
     parser.add_argument("--no-verify", action="store_true")
     parser.add_argument("--monitors", default=",".join(LIBRARY_IDS))
     parser.add_argument("--model-override", default=None)
@@ -249,6 +295,7 @@ def main() -> None:
         monitors = [all_monitors[mid] for mid in monitor_ids]
 
     client = None
+    effective_override = args.model_override
     if args.monitors == "heuristic":
         verdicts = heuristic_calibrated(transcripts)
     else:
@@ -256,15 +303,9 @@ def main() -> None:
             client = MockLLMClient()
             cache_dir = REPO / ".agentmon_cache" / "mock"
         else:
-            from agentmon.llm.openai_compat import OpenAICompatClient
-
-            client = OpenAICompatClient(
-                extra_body=PRIMARY_EXTRA_BODY,
-                min_interval_seconds=MIN_INTERVAL_SECONDS,
-                max_attempts=5,
-                backoff_seconds=5.0,
-            )
+            client, default_model = build_live_client(args.local)
             cache_dir = REPO / ".agentmon_cache"
+            effective_override = args.model_override or default_model
         verdicts = run_calibrated(
             monitors,
             transcripts,
@@ -272,7 +313,7 @@ def main() -> None:
             k=args.k,
             cache_dir=cache_dir,
             verify=not args.no_verify,
-            model_override=args.model_override,
+            model_override=effective_override,
         )
 
     run_dir = args.out / "runs" / args.label
@@ -292,7 +333,8 @@ def main() -> None:
         "k": args.k,
         "verify": not args.no_verify,
         "mock": args.mock,
-        "model_override": args.model_override,
+        "local": args.local,
+        "model_override": effective_override,
         "calls": calls,
         "cost_usd": cost,
         "prompt_sha256": prompt_hashes(),
@@ -309,6 +351,7 @@ def main() -> None:
 
     ledger = args.out / "requests.jsonl"
     live = not args.mock and args.monitors != "heuristic"
+    model_label = effective_override or PRIMARY_MODEL
     # Quota-day keying: Google's free-tier day resets at midnight PT (3:00 ET).
     quota_tz = datetime.timezone(datetime.timedelta(hours=-7))
     today = datetime.datetime.now(tz=quota_tz).date().isoformat()
@@ -321,7 +364,7 @@ def main() -> None:
                     {
                         "date": today,
                         "label": args.label,
-                        "model": args.model_override or PRIMARY_MODEL,
+                        "model": model_label,
                         "requests": requests_made,
                     }
                 )
@@ -330,7 +373,12 @@ def main() -> None:
 
     print(header)
     print(table)
-    if live:
+    if live and args.local:
+        print(
+            f"REQUESTS: this run {requests_made} (local {model_label} via the omen tunnel; "
+            "no rate limit, actual spend $0.00 self-hosted)."
+        )
+    elif live:
         day_total = sum(
             entry["requests"]
             for line in ledger.read_text().splitlines()
