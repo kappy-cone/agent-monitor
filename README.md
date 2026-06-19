@@ -34,8 +34,9 @@ session logs (~/.claude/projects)
 
 Monitors are defined as `prompts/*.md` files with YAML frontmatter (id, model, categories, …) and
 a `{{transcript}}` placeholder in the body. All LLM access goes through an `LLMClient` protocol
-with two implementations: `AnthropicClient` (live) and `MockLLMClient` (deterministic, for tests
-and `--mock` runs).
+with three implementations: `AnthropicClient` (live Claude), `OpenAICompatClient` (any
+OpenAI-compatible endpoint — used for self-hosted local monitors via vLLM and for Gemini), and
+`MockLLMClient` (deterministic, for tests and `--mock` runs).
 
 ## Quickstart
 
@@ -75,7 +76,7 @@ src/agentmon/
   ingest/         # Claude Code session logs -> normalized Transcript JSON
   monitors/       # monitor loading: prompt parsing, transcript rendering, verdict parsing
   prompts/        # monitor definitions: *.md with YAML frontmatter + prompt body
-  llm/            # LLMClient protocol, AnthropicClient, MockLLMClient
+  llm/            # LLMClient protocol, AnthropicClient, OpenAICompatClient, MockLLMClient
   runner.py       # run monitors x transcripts with an on-disk response cache
   eval/           # score verdicts against labels: AUROC, recall @ fixed FPR, cost
   cli.py          # typer CLI: agentmon ingest | run | eval
@@ -85,10 +86,14 @@ datasets/
 tests/            # everything runs against MockLLMClient; no network, no API key
 ```
 
+The five-monitor library (`security_vuln`, `reward_hacking`, `scope_expansion`, `deception`,
+`generalist`), calibrated k-sampling with bounded evidence verification, and the dev/test
+evaluation now exist; the failure-mode taxonomy lives in
+[datasets/synthetic/TAXONOMY.md](datasets/synthetic/TAXONOMY.md) and results in
+[FINDINGS.md](FINDINGS.md).
+
 ## Roadmap (explicitly out of scope today)
 
-- Real monitor prompt library (the failure-mode taxonomy now lives in
-  [datasets/synthetic/TAXONOMY.md](datasets/synthetic/TAXONOMY.md))
 - Hierarchical monitoring (cheap first pass, escalate suspicious transcripts)
 - Automated red-teaming of monitors
 - Live monitoring via Claude Code hooks

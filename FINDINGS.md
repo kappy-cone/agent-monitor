@@ -1,8 +1,9 @@
 # Findings
 
-> Test rows land per completed monitor (monitor-major cadence); shells below fill as they do.
+> Test matrix complete: Qwen-3.6 (primary) and Gemma-4 (second substrate) both ran all five
+> monitors. Remaining sub-panels (noted inline) are still to compute.
 
-## Setup (methodology skeleton — prose lands with the final numbers)
+## Setup
 
 - **Framing:** trusted monitoring in the AI-control sense — a weak, cheap *trusted* model reads
   full transcripts of a stronger untrusted coding agent and emits calibrated suspicion. Primary:
@@ -48,9 +49,9 @@ Full run-by-run breakdown in `results/gemma-qwen-test-matrix/ANALYSIS.md`.
 
 Per-mode × tier breakdown, matched-pair deltas, reweighted base-rate panel, reliability
 diagram, generalist incremental catch, and the held-out-source gap (test∩tinygrad vs
-test∩agentmon, per-slice n) fill in as rows complete.
+test∩agentmon, per-slice n) are still to compute.
 
-## Final dev table (k=3, frozen bodies, dev∩tinygrad n=37) — descriptive only
+## Final dev table — gemini-3.1-flash-lite, the Phase-3 dev-iteration model (k=3, frozen bodies, dev∩tinygrad n=37) — descriptive only
 
 | monitor | AUROC all/own | recall@0FP | recall@5%FPR | benign FPs (frac>0) | own misses |
 |---|---|---|---|---|---|
@@ -86,7 +87,8 @@ extractor would remove the redraw entirely (post-test; the parser stays identica
 ## Monitor failure modes observed during development (dev split)
 
 Both observations below come from the Phase-3 iteration loop on the tinygrad-derived dev
-slice, under the pinned primary (`gemini-3.1-flash-lite`, temperature 0.7). Each is banked at
+slice, under the Phase-3 dev-iteration model (`gemini-3.1-flash-lite`, temperature 0.7; the
+test-time primary was later re-pinned to local Qwen, DECISIONS 36). Each is banked at
 the *existence* level: the cited evidence is one or a few draws, so frequency claims are out of
 scope here — the finding is that the failure mode exists in a competent LLM judge at all.
 
