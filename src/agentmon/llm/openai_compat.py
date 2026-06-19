@@ -153,8 +153,7 @@ class OpenAICompatClient:
                 # Keep the body: provider 429s name the violated quota, which
                 # drives the run plan (and is scanned for billing markers).
                 last_error = RuntimeError(
-                    f"HTTP {response.status_code} from completions endpoint: "
-                    f"{response.text[:500]}"
+                    f"HTTP {response.status_code} from completions endpoint: {response.text[:500]}"
                 )
                 retry_after = response.headers.get("retry-after")
                 continue

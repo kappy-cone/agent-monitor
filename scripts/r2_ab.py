@@ -131,9 +131,15 @@ def main() -> None:
         for arm, mid, tid, role, cv in results:
             fh.write(
                 json.dumps(
-                    {"arm": arm, "monitor": mid, "transcript": tid, "role": role,
-                     "verdict": json.loads(cv.model_dump_json())}
-                ) + "\n"
+                    {
+                        "arm": arm,
+                        "monitor": mid,
+                        "transcript": tid,
+                        "role": role,
+                        "verdict": json.loads(cv.model_dump_json()),
+                    }
+                )
+                + "\n"
             )
     print("\nRESULTS (fraction_flagged | per-draw flags | per-draw scores):")
     for arm, mid, tid, role, cv in results:
@@ -146,9 +152,14 @@ def main() -> None:
     with LEDGER.open("a", encoding="utf-8") as fh:
         fh.write(
             json.dumps(
-                {"date": today, "label": "r2-ab", "model": "gemini-3.1-flash-lite",
-                 "requests": client.request_count}
-            ) + "\n"
+                {
+                    "date": today,
+                    "label": "r2-ab",
+                    "model": "gemini-3.1-flash-lite",
+                    "requests": client.request_count,
+                }
+            )
+            + "\n"
         )
     print(f"\nREQUESTS this run: {client.request_count} (ledgered)")
 
