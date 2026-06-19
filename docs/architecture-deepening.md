@@ -60,6 +60,29 @@ validate on **dev** behind opt-in configuration; do not silently alter the froze
 
 **Would introduce (CONTEXT):** *verification stage*, *verification pipeline*.
 
+**Implementation strategy (behaviour-preserving).** The committed test verdicts are the oracle, and
+a golden-master test already pins them — `tests/test_verification_golden.py`:
+
+- *Flip-rule layer* (CI-durable): recompute the flip and the calibrated score from each committed
+  verdict's `samples` + `verifications` and assert they equal the recorded values.
+- *Cache-replay layer* (local; skipped where the gitignored `.agentmon_cache` is absent): replay
+  `run_calibrated` over the test split against the on-disk cache with a client that raises on any
+  call, and assert byte-identical `CalibratedVerdict`s — proven 66/66 today.
+
+Refactor in two phases against it:
+
+- **Phase 1 — behaviour-preserving.** Extract the flip into the pipeline; default pipeline = the
+  current two stages. The golden master must stay green. Three invariants are the *only* ways
+  behaviour drifts: (a) **cache-key stability** — keep the semantic stage's verification cache key
+  byte-identical; new stages get new, distinct keys; (b) **schema additivity** — keep
+  `CalibratedVerdict.verifications` as-is and add an optional `stage_outcomes` (default `None`) so
+  the old committed verdicts still deserialize; (c) **default = the current two stages** ⇒
+  byte-identical verdicts.
+- **Phase 2 — additive stages.** Event-order + claim-grounding ship *off by default*, validated on
+  **dev** (the claim-grounding validation set is the six purpose-built dev cases on the
+  `dataset-expansion` branch). New stages never run in the default path and never re-score the
+  sealed test set; `results/` is immutable.
+
 ---
 
 ## 2 · Lift the QC band gate out of scripts into the eval harness — **Strong**
