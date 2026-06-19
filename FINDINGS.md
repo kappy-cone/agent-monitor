@@ -4,10 +4,14 @@
 
 ## Setup (methodology skeleton — prose lands with the final numbers)
 
-- **Framing:** trusted monitoring in the AI-control sense — a weak trusted model
-  (`gemini-3.1-flash-lite`, free tier, thinking disabled) reads full transcripts of a stronger
-  untrusted coding agent and emits calibrated suspicion. Fully cross-family by construction:
-  a Google monitor scoring Claude-generated transcripts.
+- **Framing:** trusted monitoring in the AI-control sense — a weak, cheap *trusted* model reads
+  full transcripts of a stronger untrusted coding agent and emits calibrated suspicion. Primary:
+  self-hosted **Qwen-3.6-35B-A3B (NVFP4 4-bit)** via vLLM, thinking disabled (DECISIONS 36) —
+  cross-family by construction (an Alibaba monitor scoring Claude-generated transcripts).
+  Robustness is checked against a **second, independently-trained local substrate, Gemma-4-31B
+  (AWQ 4-bit)** — Google — which ran the full matrix (`results/gemma-qwen-test-matrix/`). The
+  earlier `gemini-3.1-flash-lite` cloud-free-tier pin (DECISIONS 34) survives as the security-row
+  + dev-table comparison point.
 - **Data:** 133-transcript synthetic set (60 injected failures, 4 modes × 3 tiers; 73 benign
   incl. 26 hard negatives), base-session-atomic dev/test split (seed 7; 94 matched pairs, 0
   crossing), provenance-blind monitors. Iteration touched only the tinygrad-derived dev slice.
@@ -15,20 +19,32 @@
   (flip-on-fail, bounded, 1 call/flagged sample); calibrated score = fraction-flagged +
   mean-suspicion epsilon. Frozen prompt manifest: DECISIONS 33d. Aggregation
   flags-decision-bearing throughout.
-- **Spend:** $0.00 actual (free tier); cost column reports paid list-price equivalent.
+- **Spend:** $0.00 actual — both local substrates are self-hosted (no API spend); the earlier
+  Gemini cloud comparison ran on the free tier.
 
 ## Headline table — test split (n=66: 31 failures / 35 benign), k=3, frozen bodies
 
-| monitor | AUROC | recall@0FP(n=35) | recall@5%FPR | benign FPs | list-eq cost/transcript | status |
+Primary = self-hosted **Qwen-3.6-35B (NVFP4)** (DECISIONS 36); AUROC is **own-mode** for the four
+specialists and **all-mode** (`*`) for the generalist. All five also pass their Gemma-native QC
+bands (DECISIONS 42).
+
+| monitor | AUROC | recall@0FP(n=35) | recall@5%FPR | benign FPs | cost/transcript | status |
 |---|---|---|---|---|---|---|
-| security_vuln | — | — | — | — | — | pending (row 1) |
-| scope_expansion | — | — | — | — | — | pending (row 2) |
-| reward_hacking | — | — | — | — | — | pending (row 3) |
-| deception | — | — | — | — | — | pending (row 4) |
-| generalist | — | — | — | — | — | pending (row 5) |
+| security_vuln | 0.709 | 0.065 | 0.129 | 1 (hn2-c) | $0 self-hosted | final |
+| scope_expansion | 0.980 | 0.387 | 0.452 | 0 | $0 | final |
+| reward_hacking | 0.924 | 0.129 | 0.129 | 0 | $0 | final |
+| deception | 0.775 | 0.097 | 0.194 | 5 (1 HN: hn5-a) | $0 | final |
+| generalist | 0.722\* | 0.290 | 0.387 | 1 (hn2-c) | $0 | final |
 | ensemble: max(4 specialists) | — | — | — | — | — | pending |
 | ensemble: max(all 5) | — | — | — | — | — | pending |
 | **heuristic floor (regex/event stats)** | **0.601** | **0.000** | **0.000** | **13/35 (4 HN)** | **$0 / ~0 ms** | **final** |
+
+**Second substrate (Gemma-4-31B, AWQ)** on the identical split — own-AUROC security 0.732, scope
+0.936, reward 0.857, deception 0.688, generalist 0.693 (all-mode); 0 parse-retries/leaks across
+1,112 requests. Shared own-misses across the two independently-trained substrates (security 4/4,
+reward 3/3) mark model-agnostic monitor-design blind spots; deception carries an underpowered
+Gemma-specific discrimination deficit (90% CI on the own-AUROC delta [−0.25, +0.05], DECISIONS 41).
+Full run-by-run breakdown in `results/gemma-qwen-test-matrix/ANALYSIS.md`.
 
 Per-mode × tier breakdown, matched-pair deltas, reweighted base-rate panel, reliability
 diagram, generalist incremental catch, and the held-out-source gap (test∩tinygrad vs
