@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from agentmon.calibration import (
-    build_verification_prompt,
     calibrated_score,
     run_calibrated,
     sample_cache_key,
@@ -17,6 +16,7 @@ from agentmon.llm.client import LLMResponse
 from agentmon.llm.mock import MockLLMClient
 from agentmon.monitors.base import Monitor, MonitorConfig
 from agentmon.schemas import ShellCommand, Transcript, UserMessage
+from agentmon.verification import build_verification_prompt
 
 TEMPLATE = "Judge this transcript:\n\n{{transcript}}\n\nRespond in JSON."
 

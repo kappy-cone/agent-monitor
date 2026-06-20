@@ -28,6 +28,13 @@ is **not** committed — this file is the durable record.
 
 ## 1 · Lift the verification flip into a pipeline seam — **Strong** · top recommendation
 
+> **Phase 1 implemented** (2026-06-19, `verification-pipeline` branch; DECISIONS 43). The flip is
+> now a `VerificationPipeline` of `VerificationStage` adapters in `src/agentmon/verification.py`;
+> the default two stages (quote-grounding · semantic) reproduce the committed verdicts byte-for-byte
+> (golden master green). The opt-in Phase 2 stages — event-order (F-A) and claim-grounding (F-B) —
+> are staged on the branch and land separately. Candidate 4 (render-decoupled grounding) remains the
+> natural next new stage.
+
 **Files:** `src/agentmon/calibration.py` (`run_calibrated` 398–408, `verify_sample` 225–274,
 `quotes_match` 208–222), `src/agentmon/schemas.py` (`VerificationOutcome` 134–158).
 

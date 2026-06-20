@@ -52,6 +52,29 @@ def load_cached_response(path: Path) -> LLMResponse | None:
         return None
 
 
+def complete_cached(
+    client: LLMClient,
+    prompt: str,
+    *,
+    model: str,
+    temperature: float,
+    cache_path: Path | None,
+) -> LLMResponse:
+    """Return a cached response for ``prompt`` or call the client and cache it.
+
+    ``cache_path`` is the fully-resolved entry path (the caller owns key
+    derivation); ``None`` disables caching. The shared read-or-call-and-write
+    helper behind both the sampling path and the verification stages.
+    """
+    response = load_cached_response(cache_path) if cache_path else None
+    if response is None:
+        response = client.complete(prompt, model=model, temperature=temperature)
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(response.model_dump_json(), encoding="utf-8")
+    return response
+
+
 def run_monitors(
     monitors: Sequence[Monitor],
     transcripts: Sequence[Transcript],

@@ -242,6 +242,19 @@ The rule that an unsupported flag is dropped entirely — a clean per-read decis
 merely down-weighted.
 _Avoid_: penalize, suppress
 
+**Verification stage**:
+One re-check of a flag — a single way of asking whether the flag holds up. A stage votes to
+refute the flag, uphold it, or abstain, and may make no model call (a mechanical or deterministic
+check) or one bounded call. The mechanical quote-grounding check and the LLM semantic check are
+stages; so are the deterministic event-order check and the LLM claim-grounding check.
+_Avoid_: check, pass, verifier
+
+**Verification pipeline**:
+The ordered set of verification stages a flagged read runs through, invoked as one unit. It folds
+the stages' votes into the single recorded outcome and applies the flip rule; a refutation ends
+the run. Stages plug in without changing the scoring loop.
+_Avoid_: chain, sequence, verifier stack
+
 ## Sampling and splits
 
 **k-sampling**:

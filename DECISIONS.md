@@ -425,3 +425,44 @@ when made; this file is the durable record.
     reassessment* — **not** "resolved": the discrimination deficit and the D41 re-gate **stand**.
     `FLAG_BANDS` in `test_run.py` updated (gate config only, outside the 5cfdab1 body freeze);
     `gemma-devbands` archived alongside the test runs for independent recomputation.
+
+## Verification pipeline seam (2026-06-19, verification-pipeline branch)
+
+43. **Lift the inlined verification flip into a `VerificationPipeline` of stages
+    (architecture-deepening candidate 1).** The flip was one inlined pass in `run_calibrated`
+    (`if flagged and verify: verify_sample(...)`); it is now a `VerificationPipeline` of
+    `VerificationStage` adapters in a new `src/agentmon/verification.py`, invoked once per flagged
+    sample. The scoring loop no longer knows how a flag is checked. Contract/ambiguity calls made:
+    - **Schema additivity, not mutation (CLAUDE.md "schemas.py is the contract").** `VerificationOutcome`
+      is untouched. Added `StageOutcome` and an optional `CalibratedVerdict.stage_outcomes`
+      (`list[list[StageOutcome] | None] | None`, default `None`). Old `verdicts.jsonl` (written
+      before the field) deserialize to `None`; the field serializes as `"stage_outcomes":null`.
+      `total_*` accounting sums per-stage usage when `stage_outcomes` is present (no double count
+      against the fold) and is unchanged on the default path where it is `None`.
+    - **Default pipeline writes only the folded `verifications`; `stage_outcomes` stays `None`.**
+      Populating `stage_outcomes` on the default path would have made fresh verdicts non-identical
+      to the committed ones (which lack the key → `None`). So per-stage detail is recorded **only**
+      when an explicit (opt-in) pipeline is passed. `run_calibrated(verify=True)` with no `pipeline`
+      arg ⇒ byte-identical `CalibratedVerdict` (golden master `test_verification_golden.py`, 66/66
+      cache-replay, stays green).
+    - **The two default stages map to the historical flip exactly.** `QuoteGroundingStage`
+      (`quotes_match`, always abstains — quote-mismatch is diagnostic, never flipped on) then
+      `SemanticVerificationStage` (the body of the old `verify_sample`: no-citation refute without a
+      call, one bounded LLM call, parse → fail-open). The pipeline folds votes refute-wins with
+      short-circuit-on-refute, overlaying the quote-match diagnostic — reproducing all four
+      `verify_sample` outcome shapes field-for-field.
+    - **Cache-key stability.** The semantic stage's verification cache key is byte-identical
+      (`kind="verification"`, same prompt template + model + temperature). New LLM stages are
+      namespaced by a distinct `kind`, so they get new keys and can never be
+      served the semantic stage's cached responses. `_complete_cached` moved verbatim to
+      `runner.complete_cached` (shared by sampling and stages; no import cycle).
+    - **`quotes_match` / `build_verification_prompt` re-homed to `verification.py`** (their callers —
+      `test_calibration.py`, the untracked `diagnose_catch_loss.py` — updated to import from there).
+      `verify_sample` kept as a thin compat wrapper delegating to `default_pipeline()`.
+    - **Committed in two phases.** Phase 1 above — the seam plus the two behaviour-preserving
+      default stages — is committed on its own as a clean, golden-master-green diff. The opt-in,
+      off-by-default Phase 2 stages (`EventOrderStage` for F-A, `ClaimGroundingStage` for F-B / D41–42,
+      validated on the six `dataset-expansion` dev cases) are staged on the branch and committed
+      separately. Watch-out for Phase 2: stages change scored output, so they stay behind opt-in
+      config and never run against the GATE-2 / D33d freeze, the sealed test set, or the immutable
+      `results/`.

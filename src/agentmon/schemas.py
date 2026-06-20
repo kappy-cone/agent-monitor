@@ -158,6 +158,37 @@ class VerificationOutcome(BaseModel):
     parse_error: str | None = None
 
 
+class StageOutcome(BaseModel):
+    """One verification *stage's* contribution to the flip decision for one sample.
+
+    A verification pipeline runs ordered stages and folds their votes into the
+    single :class:`VerificationOutcome` recorded in ``verifications``. This model
+    is the per-stage detail behind that fold.
+
+    ``supported`` is the stage's vote on the flag: ``False`` refutes it (and ends
+    the pipeline), ``True`` upholds it, ``None`` abstains — the stage had no
+    opinion (e.g. a diagnostic-only stage, or a deterministic check that found
+    nothing). ``quote_match`` carries the mechanical quote-grounding diagnostic
+    when a stage computes one. The usage fields are zero for stages that make no
+    model call.
+
+    Recorded in ``CalibratedVerdict.stage_outcomes`` only when a non-default
+    pipeline runs; the default two-stage pipeline leaves that field ``None`` so
+    its verdicts stay byte-identical to the committed test matrix.
+    """
+
+    stage_id: str
+    supported: bool | None = None
+    quote_match: bool | None = None
+    reasoning: str = ""
+    model: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    latency_ms: float = 0.0
+    raw_response: str = ""
+    parse_error: str | None = None
+
+
 class CalibratedVerdict(BaseModel):
     """Aggregate of k temperature-sampled verdicts for one (monitor, transcript).
 
@@ -168,6 +199,13 @@ class CalibratedVerdict(BaseModel):
     below the 1/k gap between fractions, so ranking within a fraction never
     crosses fractions. ``verifications`` is parallel to ``samples``; ``None``
     means verification was not run for that sample (unflagged, or disabled).
+
+    ``stage_outcomes`` is the per-stage detail behind each sample's
+    ``verifications`` entry, parallel to ``samples`` (``None`` per sample where
+    verification was not run). It is ``None`` for the whole verdict under the
+    default two-stage pipeline — recorded only when an opt-in pipeline runs — so
+    the committed verdicts (written before the field existed) still deserialize
+    and the default path stays byte-identical.
     """
 
     monitor_id: str
@@ -177,6 +215,7 @@ class CalibratedVerdict(BaseModel):
     temperature: float
     samples: list[MonitorVerdict]
     verifications: list[VerificationOutcome | None] = Field(default_factory=list)
+    stage_outcomes: list[list[StageOutcome] | None] | None = None
     sample_flagged: list[bool]
     fraction_flagged: float = Field(ge=0.0, le=1.0)
     mean_suspicion: float = Field(ge=0.0, le=100.0)
@@ -190,19 +229,31 @@ class CalibratedVerdict(BaseModel):
     extra_input_tokens: int = 0
     extra_output_tokens: int = 0
 
+    def _verification_usage(self, field: str) -> float:
+        """Sum one usage field across the verification pass.
+
+        Counts per-stage outcomes when an opt-in pipeline recorded them (so a
+        multi-call pipeline is costed honestly, with no double count against the
+        folded ``verifications`` entry); otherwise the folded outcomes, which the
+        default pipeline populates exactly as before this field existed.
+        """
+        if self.stage_outcomes is not None:
+            return sum(getattr(o, field) for outs in self.stage_outcomes if outs for o in outs)
+        return sum(getattr(v, field) for v in self.verifications if v is not None)
+
     @property
     def total_input_tokens(self) -> int:
-        verif = sum(v.input_tokens for v in self.verifications if v is not None)
+        verif = int(self._verification_usage("input_tokens"))
         return sum(s.input_tokens for s in self.samples) + verif + self.extra_input_tokens
 
     @property
     def total_output_tokens(self) -> int:
-        verif = sum(v.output_tokens for v in self.verifications if v is not None)
+        verif = int(self._verification_usage("output_tokens"))
         return sum(s.output_tokens for s in self.samples) + verif + self.extra_output_tokens
 
     @property
     def total_latency_ms(self) -> float:
-        verif = sum(v.latency_ms for v in self.verifications if v is not None)
+        verif = self._verification_usage("latency_ms")
         return sum(s.latency_ms for s in self.samples) + verif
 
 
