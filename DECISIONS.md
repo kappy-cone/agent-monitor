@@ -437,8 +437,6 @@ when made; this file is the durable record.
       is untouched. Added `StageOutcome` and an optional `CalibratedVerdict.stage_outcomes`
       (`list[list[StageOutcome] | None] | None`, default `None`). Old `verdicts.jsonl` (written
       before the field) deserialize to `None`; the field serializes as `"stage_outcomes":null`.
-      `total_*` accounting sums per-stage usage when `stage_outcomes` is present (no double count
-      against the fold) and is unchanged on the default path where it is `None`.
     - **Default pipeline writes only the folded `verifications`; `stage_outcomes` stays `None`.**
       Populating `stage_outcomes` on the default path would have made fresh verdicts non-identical
       to the committed ones (which lack the key → `None`). So per-stage detail is recorded **only**
@@ -453,16 +451,27 @@ when made; this file is the durable record.
       `verify_sample` outcome shapes field-for-field.
     - **Cache-key stability.** The semantic stage's verification cache key is byte-identical
       (`kind="verification"`, same prompt template + model + temperature). New LLM stages are
-      namespaced by a distinct `kind`, so they get new keys and can never be
+      namespaced by a distinct `kind` (`"claim_grounding"`), so they get new keys and can never be
       served the semantic stage's cached responses. `_complete_cached` moved verbatim to
       `runner.complete_cached` (shared by sampling and stages; no import cycle).
     - **`quotes_match` / `build_verification_prompt` re-homed to `verification.py`** (their callers —
       `test_calibration.py`, the untracked `diagnose_catch_loss.py` — updated to import from there).
       `verify_sample` kept as a thin compat wrapper delegating to `default_pipeline()`.
-    - **Committed in two phases.** Phase 1 above — the seam plus the two behaviour-preserving
-      default stages — is committed on its own as a clean, golden-master-green diff. The opt-in,
-      off-by-default Phase 2 stages (`EventOrderStage` for F-A, `ClaimGroundingStage` for F-B / D41–42,
-      validated on the six `dataset-expansion` dev cases) are staged on the branch and committed
-      separately. Watch-out for Phase 2: stages change scored output, so they stay behind opt-in
-      config and never run against the GATE-2 / D33d freeze, the sealed test set, or the immutable
-      `results/`.
+    - **Opt-in stages ship off by default, dev-only (watch-out: stages change scored output;
+      GATE-2 / D33d freeze, sealed test set, immutable `results/`).** `EventOrderStage` (F-A):
+      deterministic, refutes a flag whose reasoning states an explicit "event A before/after event B"
+      order the indices contradict. **Hardened after an adversarial review** found the first cut
+      over-refuted — bare `[N]` brackets (array indices, regex groups, the render/evidence `[index]`
+      convention) read as event refs, and "before"/"after" words tying *clauses* grabbed the nearest
+      index — both silently killing correct catches, the exact failure the stage exists to cure. It
+      now reads only explicit `event`/`index`/`step` references that a relation word *directly* ties
+      (nearest, within a short window, no clause boundary between), abstaining on everything else: a
+      missed inversion is the only failure mode, never a falsely killed catch. Regression strings
+      pinned in `TestEventOrderStage`. `ClaimGroundingStage` (F-B; D41–42): bounded LLM check
+      confronting the agent's factual/causal claim with the cited record — a contradiction upholds
+      the deception flag, its absence refutes.
+      Both have mock-first tests; claim-grounding is validated on the six `dataset-expansion` dev
+      cases (`dec-{bla,med,sub}-0{6,7}`), **vendored into `tests/fixtures/claim_grounding_dev/`** so
+      the validation is self-contained and leaves `datasets/` / `split.json` / the leakage gate
+      untouched on this branch. `total_*` accounting now sums per-stage usage when an opt-in pipeline
+      recorded it (no double count against the fold), unchanged on the default path.
