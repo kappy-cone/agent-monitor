@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
+
+if TYPE_CHECKING:
+    from agentmon.calibration import DrawContext, DrawResult
 
 from agentmon.llm.client import LLMClient, LLMResponse
 from agentmon.schemas import (
@@ -257,3 +260,16 @@ class Monitor:
         prompt = self.build_prompt(transcript)
         response = client.complete(prompt, model=self.config.model, temperature=0.0)
         return self.verdict_from_response(transcript.id, response)
+
+    def evaluate_once(self, ctx: DrawContext) -> DrawResult:
+        """Produce one calibrated scoring draw — the leaf of the composition seam.
+
+        A leaf monitor and a composite both expose ``evaluate_once``, so the
+        calibrated scoring loop drives either through the same call. The leaf
+        runs one parse-hardened, cached completion; a composite combines member
+        draws. The delegate is imported lazily because the parse-hardening logic
+        lives in ``agentmon.calibration``, which sits above this module.
+        """
+        from agentmon.calibration import evaluate_leaf_draw
+
+        return evaluate_leaf_draw(self, ctx)

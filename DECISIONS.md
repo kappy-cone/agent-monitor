@@ -475,3 +475,93 @@ when made; this file is the durable record.
       the validation is self-contained and leaves `datasets/` / `split.json` / the leakage gate
       untouched on this branch. `total_*` accounting now sums per-stage usage when an opt-in pipeline
       recorded it (no double count against the fold), unchanged on the default path.
+
+## Monitor-composition seam (2026-06-20, monitor-composition branch)
+
+44. **Open a monitor-composition seam: cascade + ensemble behind the Monitor interface
+    (architecture-deepening candidate 3).** Mirrors candidate 1 one layer up — a composite
+    satisfies the draw-evaluator interface the way a stage satisfies the pipeline interface, so
+    `run_calibrated` drives a composite identically to a leaf with no scoring-loop edits.
+    - **Phase 1 (behaviour-preserving).** The per-draw build→cached-complete→parse-with-hardening
+      logic the k-loop inlined is now `Monitor.evaluate_once(DrawContext) -> DrawResult` (the leaf
+      delegates to `calibration.evaluate_leaf_draw` via a late import — `monitors` sits below
+      `calibration`, so a top-level import would cycle). The k-loop calls `evaluate_once` k times;
+      fraction-flagged, the epsilon tiebreak, and the committed flip-on-fail verification call are
+      untouched. Golden master stays byte-identical (66/66 cache-replay).
+    - **Phase 2 (opt-in, off by default).** `monitors/composite.py`: `EnsembleMonitor` (all members
+      on the same ctx, per-draw flag = OR, score = max, returns the driver's draw verbatim — the
+      highest-scoring flagged member, else the highest-scoring) and `CascadeMonitor` (triage gates
+      deep: no flag ⇒ short-circuit, deep `evaluate_once` never called; flag ⇒ return deep's draw).
+      Composites are never auto-discovered by `load_monitors`; nothing instantiates one unless a
+      caller builds it.
+    - **Ambiguity call — "score = max" vs "return driver verbatim".** Resolved as: the returned
+      draw's reasoning/categories/evidence are the driver's (so a verification check has real
+      grounding), but `suspicion_score` is overridden to the max across members. The two are
+      distinct facets — driver selection, OR flag, max score — pinned separately in the tests.
+    - **Provenance.** Additive optional `MonitorVerdict.provenance` (`CompositeProvenance | None`,
+      default `None`) — the `stage_outcomes` move: leaf draws serialize byte-identically and
+      pre-composite verdicts still deserialize (golden master confirms). Stamps composite / driver /
+      per-member scores / escalated.
+    - **Member model pin.** Optional `Member.model_override` overrides the ctx model for that member
+      only (additive, default off) — the seam for cross-substrate ensembles, where the same monitor
+      reads draws cached under two served names. Served names used verbatim from the cache
+      namespacing (`agentnom-local`, `agentmon-local-gemma`; D37/41), never "fixed".
+    - **Watch-out (adversarial catch; failure mode #2 at the composition layer).** The verification
+      pass re-checks only the single returned draw — the ensemble driver. A loud false-positive
+      driver that verification refutes drops a quieter member's true catch that rode in only as the
+      OR flag. The current architecture cannot verify members independently without moving
+      verification inside the composite (forbidden: the flip call site is frozen). Because each
+      member's draw is cached, per-member verification (verify each, then OR survivors) is
+      recoverable as a live-box step. Pinned in `test_louder_flagged_member_drives_over_a_quieter_catch`.
+    - **Phase 3 (offline, dev-only, descriptive — `scripts/dev_composite_eval.py`).** Composites
+      driven through `run_calibrated` by cache-replay over dev∩tinygrad (n=37, k=3), zero
+      completions. **verify is OFF**: draw-level composition fed through the same per-sample
+      aggregation + metric fns the leaf rows use (compose-then-aggregate). Composite × verification
+      and composite bands are deferred to the box (above watch-out; bands untouched). Findings on
+      dev: (3a) a 4-specialist OR ensemble beats every leaf incl. generalist on both substrates
+      (Qwen AUROC 0.78→0.905; Gemma 0.71→0.861); (3b) the two substrates miss differently on dev for
+      5/5 monitors (replicated on dev, not imported from test) and a Qwen⊕Gemma OR lifts AUROC for
+      deception/generalist/reward, ≈holds for security/scope; (3c) a generalist→spec4 cascade saves
+      73% (Qwen) / 78% (Gemma) of deep evaluations, recall triage-bounded (Gemma triage too weak).
+      Candidates presented, not selected — test confirmation is a separate gated read.
+
+45. **`VerifiedEnsembleMonitor`: per-member verify-then-OR (closes the 44 watch-out).** Designed by a
+    4-lens workflow (all lenses passed the C1–C7 constraint check), then implemented as the
+    recommended path. Each member draws, then every *flagged* member's own draw is re-checked by a
+    `VerificationPipeline` (`default_pipeline()` by default, injectable) keyed at that member's served
+    model; refuted members are dropped; the composite ORs the **survivors** (driver = highest-scoring
+    survivor). A loud false-positive driver that verification refutes no longer drags down a quieter
+    member's surviving catch — the rescue pinned in `test_verified_ensemble.py::TestRescue`.
+    - **Reuses the verification *library*, not the frozen call site (C1).** It calls
+      `default_pipeline().run(StageContext(...))` directly inside `evaluate_once`; the committed
+      `run_calibrated` flip-on-fail block is byte-untouched. New class lives in `monitors/composite.py`
+      (subclass of `EnsembleMonitor`); `calibration.py`/`verification.py`/`runner.py` unchanged. No
+      import cycle (composite already sits below both).
+    - **Cross-substrate cache keys (C2).** Each member's verification `StageContext.model =
+      member.model_override or ctx.model`, so it namespaces under exactly the substrate its draw was
+      read at — fixing the 3b mis-keying (the frozen block keys by one composite effective_model).
+    - **Ambiguity call — score semantics: max over SURVIVORS, not all members.** A refuted loud member
+      must not inflate the displayed score or epsilon tiebreak of a flag that now stands only on the
+      survivors. (Diverges from `EnsembleMonitor`'s max-over-all; deliberate.)
+    - **Runtime guard via a `self_verifies` marker (relaxes the D43 frozen-block freeze, by request).**
+      The verification is baked into the returned draw, so re-verifying it would re-check only the
+      surviving driver under one composite effective_model (mis-keyed for cross-substrate members) and
+      double-count the cost. `VerifiedEnsembleMonitor` sets `self_verifies = True`; `run_calibrated`
+      reads it (`getattr(monitor, "self_verifies", False)`) and skips its flip-on-fail pass for that
+      monitor — *per monitor*, so leaves and plain composites in the same `verify=True` batch still
+      verify normally. `verify=True` and `verify=False` are now both correct for this monitor. This is
+      the one deliberate edit to the previously-frozen `run_calibrated` verification block (the user
+      relaxed that single constraint to add the guard); leaves take the unchanged path (`getattr`
+      default `False`), so the golden master stays byte-identical. The marker is documented on the
+      `DrawEvaluator` protocol; pinned in `test_self_verifies_guard_skips_the_redundant_pass_under_verify_true`
+      and `test_guard_is_per_monitor_other_monitors_still_verified`.
+    - **Provenance.** Additive `CompositeProvenance.member_supported: dict[str, bool]` (flagged members
+      only; default empty) — golden master still byte-identical; plain ensemble/cascade unchanged.
+    - **Offline-replay precondition (C5).** Zero-completion replay holds only for member substrates run
+      `verify=True` as *leaves* in the frozen matrix (the qwen/gemma slice cached both the draw and its
+      verification). Proven by `TestOfflineReplay` (singleton over the qwen dev slice; skipped without
+      `.agentmon_cache`). A member at a never-leaf-verified substrate would attempt a live call.
+    - **Cost (C6).** Every member draw + every member verification counted exactly once (driver draw on
+      the verdict; non-driver draws + all verification usage folded into extras; `verify=False` zeroes
+      the frozen path's `_verification_usage`). Multi-LLM-stage injected pipelines would need
+      stage-aware summing (`combined` carries only the deciding stage) — noted for that future case.

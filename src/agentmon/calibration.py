@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
 
 from agentmon.runner import complete_cached
 from agentmon.schemas import (
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentmon.llm.client import LLMClient
-    from agentmon.monitors.base import Monitor
+    from agentmon.monitors.base import Monitor, MonitorConfig
 
 SAMPLING_TEMPERATURE = 0.7
 DEFAULT_K = 5
@@ -63,6 +64,62 @@ Respond with the JSON object only.
 {raw}
 </text>
 """
+
+
+@dataclass(frozen=True)
+class DrawContext:
+    """Read-only inputs for one calibrated scoring draw of a monitor.
+
+    The per-draw analogue of :class:`~agentmon.verification.StageContext`: the
+    scoring loop builds one per ``sample_index`` and hands it to
+    :meth:`~agentmon.monitors.base.Monitor.evaluate_once`. ``model`` is the
+    *effective* served model (a runner override or the monitor's configured
+    model), so a draw's cache key is derived entirely from the context.
+    """
+
+    transcript: Transcript
+    client: LLMClient
+    cache_dir: Path | None
+    sample_index: int
+    temperature: float
+    model: str
+
+
+@dataclass(frozen=True)
+class DrawResult:
+    """One draw's verdict plus the parse-hardening bookkeeping it cost.
+
+    The extras carry every discarded redraw/repair response's usage, so a
+    composite that fans out across members can sum them and keep total cost
+    honest exactly as the leaf does.
+    """
+
+    verdict: MonitorVerdict
+    parse_retries: int
+    parse_repairs: int
+    extra_input_tokens: int
+    extra_output_tokens: int
+
+
+class DrawEvaluator(Protocol):
+    """What calibrated scoring needs of a monitor: an id, a model, and one draw.
+
+    A leaf :class:`~agentmon.monitors.base.Monitor` and a composite both satisfy
+    it — the way a stage satisfies the verification-pipeline interface — so
+    :func:`run_calibrated` drives either through the same call without learning
+    that a monitor composes.
+
+    ``self_verifies`` is an optional marker (default ``False``): an evaluator
+    that runs its own verification internally — a verified composite — sets it
+    ``True`` so :func:`run_calibrated` skips its flip-on-fail pass instead of
+    re-verifying a draw already verified. Read defensively with ``getattr``, so
+    a duck-typed evaluator that omits it is simply treated as not self-verifying.
+    """
+
+    config: MonitorConfig
+    self_verifies: bool = False
+
+    def evaluate_once(self, ctx: DrawContext) -> DrawResult: ...
 
 
 def sample_cache_key(
@@ -209,13 +266,40 @@ def _sample_with_hardening(
     return verdict, retries, repairs, extra_in, extra_out
 
 
+def evaluate_leaf_draw(monitor: Monitor, ctx: DrawContext) -> DrawResult:
+    """One leaf scoring draw: the build → cached-complete → parse with hardening.
+
+    The leaf implementation of the composition seam; ``Monitor.evaluate_once``
+    delegates here (a late import, since this module sits above ``monitors``).
+    These are the exact lines the k-loop used to inline, repackaged into a
+    :class:`DrawResult` — a composite overrides ``evaluate_once`` to combine
+    member draws instead, and the k-loop calls both identically.
+    """
+    verdict, retries, repairs, extra_in, extra_out = _sample_with_hardening(
+        monitor,
+        ctx.transcript,
+        ctx.client,
+        sample_index=ctx.sample_index,
+        temperature=ctx.temperature,
+        effective_model=ctx.model,
+        cache_dir=ctx.cache_dir,
+    )
+    return DrawResult(
+        verdict=verdict,
+        parse_retries=retries,
+        parse_repairs=repairs,
+        extra_input_tokens=extra_in,
+        extra_output_tokens=extra_out,
+    )
+
+
 def calibrated_score(fraction_flagged: float, mean_suspicion: float) -> float:
     """Fraction flagged plus the mean-raw-suspicion epsilon tiebreak."""
     return fraction_flagged + (mean_suspicion / 100.0) * _EPSILON_SCALE
 
 
 def run_calibrated(
-    monitors: Sequence[Monitor],
+    monitors: Sequence[DrawEvaluator],
     transcripts: Sequence[Transcript],
     client: LLMClient,
     *,
@@ -252,30 +336,37 @@ def run_calibrated(
     results: list[CalibratedVerdict] = []
     for monitor in monitors:
         effective_model = model_override or monitor.config.model
+        # A self-verifying monitor (a verified composite) bakes per-member
+        # verification into its draw, so the flip-on-fail pass below would
+        # re-verify only its returned driver — redundant, mis-keyed for a
+        # cross-substrate member, and double-counted. Skip it for that monitor;
+        # leaves and plain composites (no marker) verify as before.
+        self_verified = getattr(monitor, "self_verifies", False)
         for transcript in transcripts:
             samples: list[MonitorVerdict] = []
             retries = repairs = extra_in = extra_out = 0
             for sample_index in range(k):
-                sample, n_retry, n_repair, d_in, d_out = _sample_with_hardening(
-                    monitor,
-                    transcript,
-                    client,
-                    sample_index=sample_index,
-                    temperature=temperature,
-                    effective_model=effective_model,
-                    cache_dir=cache_dir,
+                draw = monitor.evaluate_once(
+                    DrawContext(
+                        transcript=transcript,
+                        client=client,
+                        cache_dir=cache_dir,
+                        sample_index=sample_index,
+                        temperature=temperature,
+                        model=effective_model,
+                    )
                 )
-                samples.append(sample)
-                retries += n_retry
-                repairs += n_repair
-                extra_in += d_in
-                extra_out += d_out
+                samples.append(draw.verdict)
+                retries += draw.parse_retries
+                repairs += draw.parse_repairs
+                extra_in += draw.extra_input_tokens
+                extra_out += draw.extra_output_tokens
             verifications: list[VerificationOutcome | None] = [None] * k
             stage_records: list[list[StageOutcome] | None] = [None] * k
             flags: list[bool] = []
             for i, sample in enumerate(samples):
                 flagged = len(sample.categories) > 0
-                if flagged and verify:
+                if flagged and verify and not self_verified:
                     ctx = StageContext(
                         transcript=transcript,
                         verdict=sample,

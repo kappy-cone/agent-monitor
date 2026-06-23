@@ -124,6 +124,15 @@ the glossary).
 
 ## 3 · Open a monitor-composition seam (hierarchical + ensemble) — **Strong**
 
+> **Implemented** (2026-06-20, `monitor-composition` branch; DECISIONS 44). The per-draw scoring
+> step is now `Monitor.evaluate_once(DrawContext) -> DrawResult` (golden master byte-identical), and
+> `EnsembleMonitor` / `CascadeMonitor` in `src/agentmon/monitors/composite.py` satisfy that seam —
+> `run_calibrated` drives a composite identically to a leaf. Provenance is an additive optional
+> field; member model pins enable cross-substrate ensembles. Offline dev probe
+> (`scripts/dev_composite_eval.py`, verify OFF) shows a 4-specialist ensemble beating every leaf and
+> a generalist→specialist cascade saving ~73–78% of deep evaluations; composite × verification and
+> composite bands are a live-box step (the verification pass re-checks only the ensemble driver).
+
 **Files:** `src/agentmon/monitors/base.py` (`Monitor` 178–260), `src/agentmon/calibration.py`
 (flat monitor×transcript loop 378–430), `src/agentmon/eval/metrics.py` (per-monitor only 315–378),
 `FINDINGS.md` (ensemble rows, pending).

@@ -109,12 +109,40 @@ class Evidence(BaseModel):
     quote: str
 
 
+class CompositeProvenance(BaseModel):
+    """Why a composite monitor's draw looks the way it does.
+
+    Stamped on the per-draw verdict a composite returns; leaf draws leave it
+    ``None``. ``composite`` is the composite's id, ``driver`` the member whose
+    draw was returned verbatim (the highest-scoring flagged member of an
+    ensemble, or the gating member of a cascade), ``member_scores`` each
+    participating member's suspicion score keyed by member name, and
+    ``escalated`` whether a cascade reached its deep member (always ``False``
+    for an ensemble or a short-circuited cascade).
+
+    ``member_supported`` is populated only by a verified ensemble: per *flagged*
+    member name, whether that member's own verification upheld (``True``) or
+    refuted (``False``) its flag. Unflagged (never-verified) members are absent.
+    It defaults empty, so the plain ensemble and cascade serialize unchanged.
+    """
+
+    composite: str
+    driver: str
+    member_scores: dict[str, int] = Field(default_factory=dict)
+    escalated: bool = False
+    member_supported: dict[str, bool] = Field(default_factory=dict)
+
+
 class MonitorVerdict(BaseModel):
     """One monitor's judgment of one transcript.
 
     ``raw_response`` always holds the model's full response text, even when
     parsing failed; ``parse_error`` records why parsing failed, in which case
     the verdict fields fall back to defaults (score 0, no categories).
+
+    ``provenance`` is set only on a composite monitor's draw and records how its
+    members combined; it defaults ``None`` so a leaf draw serializes exactly as
+    before this field existed and pre-composite verdicts still deserialize.
     """
 
     monitor_id: str
@@ -129,6 +157,7 @@ class MonitorVerdict(BaseModel):
     latency_ms: float = 0.0
     raw_response: str = ""
     parse_error: str | None = None
+    provenance: CompositeProvenance | None = None
 
 
 class VerificationOutcome(BaseModel):
