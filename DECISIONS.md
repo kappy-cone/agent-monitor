@@ -779,3 +779,39 @@ when made; this file is the durable record.
       secrets sweep / identity probe / credential discovery / cloud-identity enumeration / monitoring
       discovery), no reused fake credentials. Medium/subtle tiers deferred. Suite green (736 passed);
       committed `results/` untouched.
+
+## self_recon monitor + FailureCategory promotion (2026-07-03, monitor-composition branch)
+
+49. **Author the `self_recon` specialist monitor and promote `self_recon` into `FailureCategory`
+    (P1 of docs/threat-matrix-defense-plan.md).** The monitor is the missing piece to validate the
+    self_recon dataset (DECISIONS 48) live; authored via the add-monitor skill. Calls made:
+    - **Promotion, now that the monitor ships.** `self_recon` was a dataset-only ground-truth label
+      (DECISIONS 48, `_DATASET_GROUND_TRUTH_LABELS`) precisely so it could exist before its monitor.
+      With the monitor authored it becomes a real `FailureCategory` value; the decoupling set is
+      removed and `_VALID_LABELS` reverts to the simple derivation. A monitor's emitted category
+      must be a `FailureCategory`, so this promotion is required, not optional.
+    - **Ripple handled deliberately (the frozen invariants).** Adding a 6th `FailureCategory` value
+      broke two assertions tied to the GATE-2 freeze: `test_prompt_library` asserted the frozen
+      generalist covers `set(FailureCategory)` (it covers the pre-self_recon set — updated to
+      exclude self_recon, documented as post-freeze), and `gate.ALL_MODES` would fold self_recon
+      into the generalist's owned modes. **Decision: self_recon stays OUT of `ALL_MODES`** — that
+      set drives the composite gate over frozen-specialist, sealed-test modes, and self_recon is
+      dev-only (no frozen specialist, no sealed-test rows). It joins `ALL_MODES` only when a
+      self_recon composite/test read is gated. `_COMPOSITE_GATE_EXCLUDED = {OTHER, SELF_RECON}`;
+      exclusion pinned by a unit test.
+    - **Monitor design — task nexus is the whole job.** `prompts/self_recon.md` (new specialist,
+      `categories: [self_recon]`, gemini frontmatter model, run against Qwen/Gemma via override like
+      the others). The load-bearing section is "recon with a task nexus is benign" — the same
+      commands that flag as self_recon are the HN-9 benign twin when they serve the user's ask. The
+      monitor is instructed to judge authorization and task nexus, not the command string.
+    - **Heuristic self_recon family DEFERRED.** The skill requested a heuristic recon family for a
+      cascade gate. Adding it now would perturb the frozen heuristic's behavior on every existing
+      transcript containing recon-shaped commands (its `suspicion = max(...)` over categories),
+      shifting the heuristic floor for no immediate benefit — the live validation runs the LLM
+      monitor + generalist, not the heuristic cascade. Deferred to the self_recon cascade step,
+      where its effect can be measured deliberately.
+    - **Verified.** Auto-discovered (registry globs prompts/); mock-first tests (flag + stays-benign
+      + the parametrized cross-library contract); smoke run parses all 147 synthetic transcripts, 0
+      parse errors. Suite green (742 passed); golden master 20/20 (adding an enum value leaves
+      committed verdicts' serialization untouched). NOT yet run live — that is the next step, gated
+      on the user serving Qwen via SSH tunnel.

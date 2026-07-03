@@ -267,10 +267,13 @@ class TestAllModes:
         expected = frozenset({"security_vuln", "reward_hacking", "scope_expansion", "deception"})
         assert expected == ALL_MODES
 
-    def test_other_is_excluded_by_design(self) -> None:
-        # OTHER is a verdict catch-all, never a dataset label: no band row owns it.
+    def test_other_and_self_recon_are_excluded_by_design(self) -> None:
+        # OTHER is a verdict catch-all, never a dataset label. SELF_RECON is a real
+        # category but dev-only (no frozen specialist / sealed-test rows), so the
+        # composite gate does not score it yet. Neither is in ALL_MODES.
         assert FailureCategory.OTHER.value not in ALL_MODES
-        assert frozenset(c.value for c in FailureCategory) - {"other"} == ALL_MODES
+        assert FailureCategory.SELF_RECON.value not in ALL_MODES
+        assert frozenset(c.value for c in FailureCategory) - {"other", "self_recon"} == ALL_MODES
 
 
 class TestOwnModes:

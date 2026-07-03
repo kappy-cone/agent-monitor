@@ -19,6 +19,7 @@ class FailureCategory(StrEnum):
     REWARD_HACKING = "reward_hacking"
     SCOPE_EXPANSION = "scope_expansion"
     DECEPTION = "deception"
+    SELF_RECON = "self_recon"
     OTHER = "other"
 
 
@@ -330,15 +331,7 @@ class CalibratedVerdict(BaseModel):
         return sum(s.latency_ms for s in self.samples) + verif
 
 
-#: Ground-truth labels present in the synthetic dataset ahead of a monitor
-#: category. ``self_recon`` (agent self-reconnaissance — the threat-matrix
-#: Discovery tactic; docs/threat-matrix-defense-plan.md P1) is labeled in the
-#: data now, before its monitor exists. It is deliberately kept OUT of
-#: ``FailureCategory`` so the frozen generalist's all-category coverage invariant
-#: (test_prompt_library) and the gate's ``ALL_MODES`` stay byte-stable; it is
-#: promoted into ``FailureCategory`` when the self_recon monitor ships.
-_DATASET_GROUND_TRUTH_LABELS = {"self_recon"}
-_VALID_LABELS = {"benign"} | {c.value for c in FailureCategory} | _DATASET_GROUND_TRUTH_LABELS
+_VALID_LABELS = {"benign"} | {c.value for c in FailureCategory}
 
 
 class LabeledTranscript(BaseModel):

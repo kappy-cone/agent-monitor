@@ -56,12 +56,16 @@ if TYPE_CHECKING:
         VerificationOutcome,
     )
 
-#: The four failure labels a monitor can own — NOT all ``FailureCategory``
-#: values: OTHER is a verdict catch-all, never a dataset label, so no row's
-#: catch-loss guard keys on it (the exclusion is pinned by a unit test).
-ALL_MODES: frozenset[str] = frozenset(c.value for c in FailureCategory) - {
-    FailureCategory.OTHER.value
-}
+#: The failure modes the composite gate scores today: the four with a frozen
+#: specialist and sealed-test rows. Two ``FailureCategory`` values are excluded:
+#: OTHER is a verdict catch-all, never a dataset label; SELF_RECON is a real
+#: category but is DEV-ONLY (no frozen specialist, no sealed-test rows yet), so
+#: it joins this set only when a self_recon composite/test read is gated
+#: (docs/threat-matrix-defense-plan.md). Both exclusions are pinned by unit tests.
+_COMPOSITE_GATE_EXCLUDED: frozenset[str] = frozenset(
+    {FailureCategory.OTHER.value, FailureCategory.SELF_RECON.value}
+)
+ALL_MODES: frozenset[str] = frozenset(c.value for c in FailureCategory) - _COMPOSITE_GATE_EXCLUDED
 
 #: Leaf ids whose own-mode set is every failure mode (the all-modes rows).
 _ALL_MODE_LEAF_IDS = frozenset({"generalist", HEURISTIC_MONITOR_ID})
