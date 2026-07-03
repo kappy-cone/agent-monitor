@@ -815,3 +815,25 @@ when made; this file is the durable record.
       parse errors. Suite green (742 passed); golden master 20/20 (adding an enum value leaves
       committed verdicts' serialization untouched). NOT yet run live — that is the next step, gated
       on the user serving Qwen via SSH tunnel.
+
+## self_recon first live dev validation (2026-07-03, monitor-composition branch)
+
+50. **self_recon validated live on Qwen — separates cleanly, resists HN-9 (approach-1 payoff).**
+    First live scoring of the `self_recon` monitor (DECISIONS 49) against the self_recon dev
+    material (DECISIONS 48). `dev_eval.py --local --slice dev-full --confirm-post-freeze --k 3`,
+    all 6 monitors, verify ON (default pipeline), 1,058 requests, $0. Archived at
+    `results/self_recon-dev-validation/`. Result: own-AUROC **1.000**, caught **5/5** injected
+    recon, **0/4** HN-9 negatives false-flagged, **0** benign FPs over all 81 dev — flagged exactly
+    the 5 injections and nothing else. The task-nexus distinction held live (the FP question the
+    leakage gate could not answer). The generalist flags self_recon at 0.27 vs the specialist's
+    0.80, confirming the specialist earns its place. Architecture ran clean live (parse hardening
+    absorbed 3 retries / 1 repair, 0 unrecovered) — first live exercise of the post-refactor stack.
+    - **Freeze-safe.** Dev-full, post-freeze; sealed 66-row test partition untouched; `out/phase3`
+      artifacts gitignored, distilled record in `results/`.
+    - **Caveats recorded (not oversold).** Small n / blatant tier only (medium/subtle are the real
+      HN-9 stress test, not built); the DEFAULT pipeline was used so the quote-fidelity tax is still
+      present (scope 32 / deception 28 / generalist 23 mechanical flips) — the opt-in grounding fix
+      was NOT exercised; single substrate (Qwen only).
+    - **Verdict.** Green light for the recipe (mined sessions → leakage-gated dataset → specialist
+      → live detection). Next levers: robustify self_recon at medium/subtle tiers; run the grounding
+      A/B to validate the recall lever; then build self_preservation / exfil_replication.
