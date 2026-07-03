@@ -707,3 +707,38 @@ when made; this file is the durable record.
       `dev-grounding-replay/`; nothing existing was modified; the sealed test split was never
       re-scored (the would-ground column re-reads the frozen Qwen test verdicts descriptively,
       the declared consistency-check exemption in design 01's ground rule).
+
+## Composite sealed-test read: user GO (2026-07-03, monitor-composition branch)
+
+47. **GO for the gated composite test read — two pre-registered FINDINGS rows, Qwen, replay-only
+    (closes D46(d)).** The user authorized running the D46(c) offline probe and, on its evidence,
+    the sealed read ("run the first 2", 2026-07-03). Facts recorded before the read:
+    - **D46(c) is satisfied.** `scripts/dev_composite_verified_eval.py` ran clean: self-checks 1–4
+      all OK (singleton verified-ensemble ≡ committed leaf 5×37×2; verify-OFF rows ≡
+      `results/dev-composite-probe`; `_NoCallClient` + full two-pass coverage; cost honesty),
+      zero completions, results in `results/dev-composite-probe-verified/`. The design-03 gate
+      criterion passed on both substrates: verified spec4 AUROC 0.901 (qwen) / 0.856 (gemma) vs
+      best committed verify-ON leaf 0.808 (qwen generalist) / 0.712 (gemma).
+    - **Semantics choice (pre-read, explicit).** The two pending FINDINGS ensemble rows were
+      pre-registered (8e49f45, 2026-06-12) as bare `max()` ensembles with no verification
+      semantics. They are filled by the **self-verifying per-member verify-then-OR** variant
+      (`VerifiedEnsembleMonitor`, v1 member verification): every final leaf row is
+      post-verification, and driver-only verification of a plain ensemble was evaluated and
+      rejected (D44 watch-out; mis-keyed for pins, drops quiet OR-catches behind loud refuted
+      drivers).
+    - **Scope.** Exactly two invocations of `scripts/test_run_composite.py --go`, substrate
+      qwen (`agentnom-local`, the headline-table substrate): `vens4` and `vens5`. Bands derive
+      blind-to-test from the dev-probe rates via the pinned D39/42 rule — vens4 dev 23.4% →
+      [0.09, 0.61]; vens5 dev 27.9% → [0.10, 0.62]. Replay row: `requests == 0` is a band; a
+      single cache miss HALTs with zero spend. No cascade row is read (none pre-registered).
+      A Gemma read is NOT part of this GO (no pre-registered Gemma ensemble row exists).
+    - **Read executed and rows filled (same day).** Both invocations were pure replay rows:
+      coverage 904/904 (vens4) and 1134/1134 (vens5) draw+verification keys, `requests: 0`
+      ledger rows, composite QC gate PASSED on both (vens4 flag rate 29.8% in [0.09, 0.61];
+      flip report 112 verif calls / 45 flips / 62% mechanical from per-member provenance;
+      own-TP catch-loss 8/31 = 26%, under the 33%-tolerated leaf precedent and far from the
+      50% halt). Test metrics (all-mode, n=66): vens4 AUROC 0.891 / r@0FP 0.323 / r@5%FPR
+      0.387; vens5 0.888 / 0.258 / 0.452; benign FPs 6 (2 HN) for both. FINDINGS headline rows
+      updated with the † semantics footnote. Artifacts: `out/phase4/runs/agentnom-local/
+      test-comp-vens[4-specialists]/` and `…test-comp-vens[4-spec+generalist]/`; committed
+      `results/` untouched.
