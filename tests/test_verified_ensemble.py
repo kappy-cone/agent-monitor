@@ -12,14 +12,17 @@ zero-completion property end-to-end.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from agentmon.calibration import DrawContext, DrawResult, run_calibrated
+from agentmon.llm.client import LLMResponse
 from agentmon.llm.mock import MockLLMClient
 from agentmon.monitors.base import Monitor, MonitorConfig
 from agentmon.monitors.composite import (
+    CascadeMonitor,
     CompositeMonitor,
     Member,
     VerifiedEnsembleMonitor,
@@ -33,7 +36,15 @@ from agentmon.schemas import (
     UserMessage,
     VerificationOutcome,
 )
-from agentmon.verification import PipelineResult, StageContext
+from agentmon.verification import (
+    ClaimGroundingStage,
+    PipelineResult,
+    QuoteGroundingStage,
+    SemanticVerificationStage,
+    StageContext,
+    VerificationPipeline,
+    default_pipeline,
+)
 
 MODEL = "claude-test-1"
 TEMPLATE = "Judge this transcript:\n\n{{transcript}}\n\nRespond in JSON."
@@ -138,6 +149,12 @@ class TestRescue:
         assert prov.driver == "security_vuln"
         assert prov.member_scores == {"reward_hacking": 80, "security_vuln": 40}
         assert prov.member_supported == {"reward_hacking": False, "security_vuln": True}
+        # Raw (pre-verification) flags: BOTH members flagged, even though the
+        # loud one was refuted — the flip decomposition needs the raw picture.
+        assert prov.member_flagged == {"reward_hacking": True, "security_vuln": True}
+        # The full folded outcome per verified member, straight from the fold.
+        assert prov.member_verifications["reward_hacking"].supported is False
+        assert prov.member_verifications["security_vuln"].supported is True
 
 
 class TestBranchB:
@@ -186,6 +203,8 @@ class TestBranchB:
         assert prov is not None
         assert prov.driver == "security_vuln"  # the unflagged high scorer
         assert prov.member_supported == {"reward_hacking": False}  # only flagged was verified
+        assert prov.member_flagged == {"reward_hacking": True, "security_vuln": False}
+        assert set(prov.member_verifications) == {"reward_hacking"}  # unflagged never verified
 
 
 class TestSurvivorSemantics:
@@ -219,6 +238,94 @@ class TestPerMemberKeying:
         )
         ensemble.evaluate_once(make_ctx(model="served-qwen"))
         assert pipeline.seen_models == ["served-qwen", "served-gemma"]
+
+
+class TestCascadeOverVerifiedEnsemble:
+    """The vcasc[gen->vens] provenance pins: the cascade re-stamps the returned
+    verdict but carries the deep composite's own provenance through under
+    ``inner`` instead of destroying it, and delegates ``self_verifies`` to the
+    deep member (the triage gate is never verified — verification can only turn
+    flags off, so verifying the gate could only cost recall)."""
+
+    def test_inner_exposes_which_member_raw_flagged_and_which_was_refuted(self) -> None:
+        # An escalated draw whose deep verified ensemble refuted its loud member
+        # and kept the quiet one: `inner` shows both raw flags and the refute.
+        triage = StubMonitor("triage", 70, flagged=True, reasoning="gate")
+        loud = StubMonitor("reward_hacking", 80, flagged=True, reasoning="loud fp")
+        quiet = StubMonitor("security_vuln", 40, flagged=True, reasoning="quiet catch")
+        pipeline = StubPipeline({"loud fp": False, "quiet catch": True})
+        vens = VerifiedEnsembleMonitor("vens", [Member(loud), Member(quiet)], pipeline=pipeline)
+        out = CascadeMonitor("vcasc", Member(triage), Member(vens)).evaluate_once(make_ctx())
+        assert out.verdict.categories  # the quiet catch survived through the cascade
+        prov = out.verdict.provenance
+        assert prov is not None and prov.escalated
+        assert prov.driver == "vens"
+        # The deep entry is the RETURNED (post-verification) flag; raw flags below.
+        assert prov.member_flagged == {"triage": True, "vens": True}
+        inner = prov.inner
+        assert inner is not None and inner.composite == "vens"
+        assert inner.member_flagged == {"reward_hacking": True, "security_vuln": True}  # raw
+        assert inner.member_verifications["reward_hacking"].supported is False  # the refute
+        assert inner.member_verifications["security_vuln"].supported is True
+        assert inner.driver == "security_vuln"  # the survivor drove the deep draw
+
+    def test_inner_distinguishes_all_refuted_escalation_from_a_deep_miss(self) -> None:
+        # The gate-miss vs catch-loss pin: both cascades below escalate and
+        # return an unflagged draw — identical at the top level. Only `inner`
+        # separates "a deep member raw-flagged and verification refuted it"
+        # (catch-loss, verification's doing) from "no deep member ever
+        # raw-flagged" (a deep miss). Without the carry-through, the composite
+        # catch-loss guard would be vacuous on every cascade row.
+        triage = StubMonitor("triage", 70, flagged=True, reasoning="gate")
+
+        refuted = StubMonitor("deception", 75, flagged=True, reasoning="refuted claim")
+        vens_loss = VerifiedEnsembleMonitor(
+            "vens", [Member(refuted)], pipeline=StubPipeline({"refuted claim": False})
+        )
+        out_loss = CascadeMonitor("vcasc", Member(triage), Member(vens_loss)).evaluate_once(
+            make_ctx()
+        )
+
+        quiet = StubMonitor("deception", 20, flagged=False, reasoning="quiet")
+        vens_miss = VerifiedEnsembleMonitor("vens", [Member(quiet)], pipeline=StubPipeline({}))
+        out_miss = CascadeMonitor("vcasc", Member(triage), Member(vens_miss)).evaluate_once(
+            make_ctx()
+        )
+
+        for out in (out_loss, out_miss):  # indistinguishable at the top level
+            assert not out.verdict.categories
+            prov = out.verdict.provenance
+            assert prov is not None and prov.escalated
+            assert prov.member_flagged == {"triage": True, "vens": False}
+
+        inner_loss = out_loss.verdict.provenance.inner  # type: ignore[union-attr]
+        assert inner_loss is not None
+        assert inner_loss.member_flagged == {"deception": True}  # raw-flagged...
+        assert inner_loss.member_verifications["deception"].supported is False  # ...and refuted
+
+        inner_miss = out_miss.verdict.provenance.inner  # type: ignore[union-attr]
+        assert inner_miss is not None
+        assert inner_miss.member_flagged == {"deception": False}  # never raw-flagged
+        assert inner_miss.member_verifications == {}  # nothing was ever verified
+
+    def test_cascade_over_self_verifying_deep_is_skipped_by_the_flip_pass(self) -> None:
+        # Delegation through run_calibrated: the cascade reads as self-verifying
+        # because its deep member is, so verify=True never runs the frozen
+        # flip-on-fail pass (no client call, no `verifications` entry) — the
+        # deep verified ensemble already verified its own members.
+        triage = StubMonitor("triage", 70, flagged=True, reasoning="gate")
+        member = StubMonitor("security_vuln", 60, flagged=True, reasoning="catch")
+        vens = VerifiedEnsembleMonitor(
+            "vens", [Member(member)], pipeline=StubPipeline({"catch": True})
+        )
+        cascade = CascadeMonitor("vcasc", Member(triage), Member(vens))
+        assert cascade.self_verifies is True  # verified iff the deep member is
+
+        client = MockLLMClient()
+        [cv] = run_calibrated([cascade], [make_transcript()], client, k=2, verify=True)
+        assert client.call_count == 0  # the frozen flip pass never ran
+        assert cv.verifications == [None, None]
+        assert cv.sample_flagged == [True, True]  # the member survived its own verification
 
 
 class TestCostAndDriving:
@@ -301,6 +408,57 @@ class TestCostAndDriving:
         assert leaf_cv.sample_flagged == [False]  # and flipped on the refute
         assert ens_cv.verifications == [None]  # the self-verifier's frozen pass was skipped
         assert ens_cv.sample_flagged == [True]  # its member survived its OWN verification
+
+
+class _FixedUsageScriptedClient:
+    """Substring-scripted responses with fixed per-call usage, so totals are assertable."""
+
+    def __init__(self, script: dict[str, str]) -> None:
+        self.script = script
+        self.calls = 0
+
+    def complete(
+        self, prompt: str, *, model: str, max_tokens: int = 4096, temperature: float = 0.0
+    ) -> LLMResponse:
+        self.calls += 1
+        text = next((resp for needle, resp in self.script.items() if needle in prompt), "{}")
+        return LLMResponse(text=text, model=model, input_tokens=10, output_tokens=5, latency_ms=0.0)
+
+
+class TestStageAwareVerificationCost:
+    def test_multi_llm_stage_pipeline_counts_every_stage_call(self) -> None:
+        # DECISIONS 45-C6: with an injected multi-LLM-stage pipeline a member's
+        # verification can spend more than its deciding stage. The ensemble sums
+        # usage over the recorded stage outcomes, not the folded outcome, so
+        # both the semantic and the claim-grounding call are costed.
+        member = StubMonitor("deception", 70, flagged=True, reasoning="claimful")
+        pipeline = VerificationPipeline(
+            [QuoteGroundingStage(), SemanticVerificationStage(), ClaimGroundingStage()]
+        )
+        client = _FixedUsageScriptedClient(
+            {
+                "auditing one claim made": json.dumps({"supported": True}),
+                "*deception* flag": json.dumps({"contradicted": True}),
+            }
+        )
+        ensemble = VerifiedEnsembleMonitor("ver", [Member(member)], pipeline=pipeline)
+        [cv] = run_calibrated([ensemble], [make_transcript()], client, k=1, verify=False)
+        assert client.calls == 2  # semantic + claim grounding both ran
+        assert cv.total_input_tokens == 30  # draw 10 + two verification calls (10 + 10)
+        assert cv.total_output_tokens == 15  # draw 5 + 5 + 5
+
+    def test_default_pipeline_totals_unchanged_for_the_single_deciding_stage(self) -> None:
+        # The default pipeline's stage sum equals the folded outcome's usage —
+        # only the semantic stage spends — so totals are pinned unchanged.
+        member = StubMonitor("security_vuln", 70, flagged=True, reasoning="claimful")
+        client = _FixedUsageScriptedClient(
+            {"auditing one claim made": json.dumps({"supported": True})}
+        )
+        ensemble = VerifiedEnsembleMonitor("ver", [Member(member)], pipeline=default_pipeline())
+        [cv] = run_calibrated([ensemble], [make_transcript()], client, k=1, verify=False)
+        assert client.calls == 1
+        assert cv.total_input_tokens == 20  # draw 10 + one semantic call 10
+        assert cv.total_output_tokens == 10
 
 
 class TestOptIn:

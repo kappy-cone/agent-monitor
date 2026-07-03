@@ -116,6 +116,7 @@ class EnsembleMonitor(CompositeMonitor):
         driver, driver_result = _select_driver(draws)
         max_score = max(result.verdict.suspicion_score for _, result in draws)
         member_scores = {member.name: result.verdict.suspicion_score for member, result in draws}
+        member_flagged = {m.name: bool(r.verdict.categories) for m, r in draws}
         verdict = driver_result.verdict.model_copy(
             update={
                 "suspicion_score": max_score,
@@ -126,6 +127,7 @@ class EnsembleMonitor(CompositeMonitor):
                     composite=self.config.id,
                     driver=driver.name,
                     member_scores=member_scores,
+                    member_flagged=member_flagged,
                     escalated=False,
                 ),
             }
@@ -174,6 +176,13 @@ def _verify_then_or(
     namespaces under exactly the substrate the member's draw was read at — which
     is what makes a cross-substrate verified ensemble key correctly and replay
     from the per-substrate ``verify=True`` cache with zero completions.
+
+    Usage is summed over the pipeline's per-stage outcomes when it records them
+    (DECISIONS 45-C6): an injected multi-LLM-stage pipeline can spend more than
+    its deciding stage, e.g. claim-grounding and, after a parse failure, the
+    semantic call. When a pipeline records no stages, the folded outcome's
+    usage is used — identical for the single-deciding-stage default, where only
+    the semantic stage spends.
     """
     survivors: list[tuple[Member, DrawResult]] = []
     records: list[_MemberVerification] = []
@@ -189,9 +198,14 @@ def _verify_then_or(
             cache_dir=ctx.cache_dir,
             model=member_model,
         )
-        combined = pipeline.run(sctx).combined  # one call; reuse the result
-        verif_in += combined.input_tokens
-        verif_out += combined.output_tokens
+        run = pipeline.run(sctx)  # one run; reuse the fold and the stages
+        combined = run.combined
+        if run.stage_outcomes:
+            verif_in += sum(o.input_tokens for o in run.stage_outcomes)
+            verif_out += sum(o.output_tokens for o in run.stage_outcomes)
+        else:
+            verif_in += combined.input_tokens
+            verif_out += combined.output_tokens
         records.append(_MemberVerification(member.name, combined.supported, combined))
         if combined.supported:
             survivors.append((member, result))
@@ -243,7 +257,12 @@ class VerifiedEnsembleMonitor(EnsembleMonitor):
         draws = [(member, member.draw(ctx)) for member in self.members]
         survivors, records, verif_in, verif_out = _verify_then_or(draws, ctx, pipeline)
         member_scores = {member.name: result.verdict.suspicion_score for member, result in draws}
+        member_flagged = {m.name: bool(r.verdict.categories) for m, r in draws}
         member_supported = {record.name: record.supported for record in records}
+        # The full folded outcome per verified member: quote_match keeps the
+        # mechanical/semantic flip split legible. Its usage tokens are folded
+        # into the extras below — totals must never sum this map.
+        member_verifications = {record.name: record.outcome for record in records}
 
         if survivors:
             driver, driver_result = _select_driver(survivors)
@@ -274,6 +293,8 @@ class VerifiedEnsembleMonitor(EnsembleMonitor):
                     driver=driver.name,
                     member_scores=member_scores,
                     member_supported=member_supported,
+                    member_flagged=member_flagged,
+                    member_verifications=member_verifications,
                     escalated=False,
                 ),
             }
@@ -313,6 +334,16 @@ class CascadeMonitor(CompositeMonitor):
         self.triage = triage
         self.deep = deep
 
+    @property
+    def self_verifies(self) -> bool:
+        """A cascade is verified iff its deep member is. The triage gate is
+        deliberately NEVER verified: verification can only turn flags off, so
+        verifying the gate could only gate out true catches (recall loss);
+        precision is the deep member's job. A short-circuited draw is
+        unflagged and needs no verification by construction.
+        """
+        return getattr(self.deep.monitor, "self_verifies", False)
+
     def evaluate_once(self, ctx: DrawContext) -> DrawResult:
         triage_result = self.triage.draw(ctx)
         if not triage_result.verdict.categories:
@@ -322,7 +353,11 @@ class CascadeMonitor(CompositeMonitor):
                         composite=self.config.id,
                         driver=self.triage.name,
                         member_scores={self.triage.name: triage_result.verdict.suspicion_score},
+                        member_flagged={self.triage.name: False},
                         escalated=False,
+                        # A composite triage's own provenance (e.g. an OR-widened
+                        # gate ensemble) survives the cascade's re-stamp.
+                        inner=triage_result.verdict.provenance,
                     )
                 }
             )
@@ -338,7 +373,19 @@ class CascadeMonitor(CompositeMonitor):
                         self.triage.name: triage_result.verdict.suspicion_score,
                         self.deep.name: deep_result.verdict.suspicion_score,
                     },
+                    # The deep entry is the returned draw's flag — for a verified
+                    # ensemble that is post-verification by construction; the raw
+                    # inner flags and per-member refutes live under ``inner``.
+                    member_flagged={
+                        self.triage.name: True,
+                        self.deep.name: bool(deep_result.verdict.categories),
+                    },
                     escalated=True,
+                    # Carry the deep member's own provenance through instead of
+                    # destroying it: without it, "escalated but every deep flag
+                    # was refuted" (catch-loss) is indistinguishable from
+                    # "escalated but no deep member ever raw-flagged" (deep miss).
+                    inner=deep_result.verdict.provenance,
                 )
             }
         )

@@ -8,13 +8,13 @@ from typing import Annotated
 import typer
 from pydantic import BaseModel, ValidationError
 
+from agentmon.calibration import run_calibrated
 from agentmon.eval.metrics import evaluate
 from agentmon.eval.report import write_report
 from agentmon.ingest.claude_code import ingest_path, parse_session_file
 from agentmon.llm.client import AnthropicClient, LLMClient
 from agentmon.llm.mock import MockLLMClient
 from agentmon.monitors.registry import get_monitor
-from agentmon.runner import run_monitors
 from agentmon.schemas import LabeledTranscript, MonitorVerdict, Transcript
 
 app = typer.Typer(
@@ -156,6 +156,14 @@ def run(
 
     Without --mock this calls the Anthropic API, which requires the
     ANTHROPIC_API_KEY environment variable to be set.
+
+    Scoring goes through the calibrated path at k=1, temperature 0, no
+    verification — one deterministic sample per (monitor, transcript), printed
+    as a plain MonitorVerdict as before. Cache keys follow the calibrated
+    contract (sample_cache_key), not the retired runner scheme: entries written
+    by older versions of this command are orphaned (never read, never deleted),
+    and a fresh run re-calls the model once per pair. The default cache
+    location (.agentmon_cache) is unchanged.
     """
     try:
         resolved = get_monitor(monitor)
@@ -180,7 +188,18 @@ def run(
     # Mock responses are cached under their own namespace so a later live run
     # can never be served a canned mock verdict from the shared cache.
     effective_cache = None if no_cache else (cache_dir / "mock" if mock else cache_dir)
-    verdicts = run_monitors([resolved], transcripts, client, cache_dir=effective_cache)
+    calibrated = run_calibrated(
+        [resolved],
+        transcripts,
+        client,
+        k=1,
+        temperature=0.0,
+        cache_dir=effective_cache,
+        verify=False,
+    )
+    # k=1 means each CalibratedVerdict wraps exactly one sample; print that
+    # MonitorVerdict so the command's output shape is unchanged.
+    verdicts = [result.samples[0] for result in calibrated]
     for verdict in verdicts:
         typer.echo(verdict.model_dump_json(indent=2))
     if out is not None:

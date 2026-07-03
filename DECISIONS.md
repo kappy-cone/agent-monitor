@@ -565,3 +565,145 @@ when made; this file is the durable record.
       the verdict; non-driver draws + all verification usage folded into extras; `verify=False` zeroes
       the frozen path's `_verification_usage`). Multi-LLM-stage injected pipelines would need
       stage-aware summing (`combined` carries only the deciding stage) — noted for that future case.
+
+## Architecture-deepening expansion implemented (2026-07-03, monitor-composition branch)
+
+46. **The five-design capability expansion (docs/architecture-deepening-expansion.md; designs
+    01–05 in docs/designs/) is implemented as one program:** the rendering module with view-true
+    grounding, the bracket overflow policy, and the calibrated render budget (01+05 merged);
+    the grounded/scoped/terminal verification stages and `pipeline_v2` (01, 04); composition
+    provenance and `HeuristicMonitor` (03); the `agentmon.eval` harness with bands-as-config and
+    the parity oracle (02); the composite gate (03); stage confusion accounting (04); and the
+    runner retirement (candidate-5 rider). All code, config, and tests are landed and green
+    (722 passed, 1 skipped; golden master byte-identical, both layers, against the 4,660-entry
+    cache). Every live-substrate run and every sealed-test read stays gated (end of entry).
+    Contract and ambiguity calls actually made:
+    - **Rendering merged: one module, view-true.** `src/agentmon/rendering.py` owns format,
+      per-event cap, `RenderBudget`, overflow policy, and grounding; `monitors/base.py` re-exports
+      the moved functions and `render_transcript` delegates through `build_view` with a
+      `chars_per_token=1.0` budget so `max_tokens` counts chars exactly — byte-identity for EVERY
+      `max_chars` including the marker path (rendering.py:338–348; census in
+      tests/test_rendering_view.py). Grounding matches the VIEW text — post per-event cap, post
+      budget/policy (`ground_evidence`, rendering.py:517) — design 05's contract superseding
+      design 01's uncapped match surface; design 01's taxonomy, budget shape, and stage names won
+      everywhere else. **`elided` is the merge-born status** (rendering.py:485): the cited event
+      exists but is not in the view — terminal, no relocation (the monitor never saw those bytes),
+      excluded from `render_indices`, so an elided-only flag takes the grounded stage's free
+      refute exactly like a no-citation flag (identical to the default stage's free-refute set on
+      the current dataset, where nothing overflows and elided is always empty).
+    - **Bracket policy + additive view config.** Head fill to 0.30·max_chars (dev-derived), tail
+      filled backwards, ONE contiguous elided range, marker naming the exact index range
+      (rendering.py:258–335). Dev-split `failure_event_indices` survival under bracket at
+      ≥32k-char budgets is asserted; test-split counts are computed in the same test but
+      REPORT-ONLY (tests/test_rendering_view.py:114). `MonitorConfig` gains frontmatter-parsable
+      `chars_per_token=4.0` / `overflow_policy="head"` (base.py:52–53) — the five frozen prompt
+      files carry neither, so parsed config and every sample cache key are unchanged — plus a
+      warn-only validator on `chars_per_token < 4` with head policy (self-inflicted truncation is
+      the documented hazard). `Monitor.view()` (base.py:173) is the single "what the monitor saw";
+      `build_prompt` goes through it.
+    - **Calibrated cpt pinned from the offline run, rule recorded first.**
+      `scripts/calibrate_render_budget.py` pinned the derivation rule (p05 rounded DOWN to 0.1,
+      floored at 3.0; retrodiction coverage report-only) BEFORE reading the 990 committed sample
+      records per substrate. Measured: Qwen p05 3.0429 → **3.0** (coverage 0.997); Gemma p05
+      2.8400 → **the 3.0 floor binds** (coverage 0.776, recorded, never gated); the unknown-model
+      fallback is the min of the pins, 3.0 (rendering.py:167–171; results/dev-render-calibration/).
+      The only hard assertions are the two Gemma-overflow `preflight_fits` checks (fails 16384,
+      fits 32768; tests/test_render_calibration.py). Calibrated budgets are opt-in
+      (`RenderBudget.calibrated`, rendering.py:146) — the frozen path keeps legacy semantics, so
+      the golden master cannot see them.
+    - **Stages: design 01's names over design 05's view.** `NormalizedGroundingStage`
+      (verification.py:566; always abstains, `all_grounded` → quote_match, per-entry
+      statuses/resolved in the new `StageOutcome.details`, schemas.py:262) and
+      `GroundedSemanticStage` (verification.py:602; NEW cache-key kind `grounded_semantic`;
+      template annotates quote PRESENCE only, never support; refutes free exactly when
+      `render_indices` is empty; parse failure fails open). `grounded_stages_for(monitor)` /
+      `grounded_pipeline(monitor)` (verification.py:696–727) are the documented construction path
+      so grounding checks the view the monitor rendered (the view-drift guard, test-asserted).
+      `default_pipeline()` is byte-untouched.
+    - **Promotion machinery (design 04).** Additive `StageOutcome.terminal` (schemas.py:254) plus
+      the one-condition fold edit (verification.py:666): refute is terminal always; **confirm** =
+      terminal uphold, granted only on a positive finding — `ClaimGroundingStage(confirm=True)`
+      stamps terminal only when contradicted; the parse-error fail-open stays provisional
+      (verification.py:537). `ScopedStage` (verification.py:541) gates on the FLAG's categories
+      (the generalist's deception flags are in scope — deliberate). `pipeline_v2` (quote →
+      event-order → scoped claim-grounding(confirm) → semantic) and `PIPELINES {v1,v2}`
+      (verification.py:730–757) are constructor selection, no registry.
+      `agentmon.eval.stage_report` (flip_deltas / stage_confusion / transcript_catch_loss) is the
+      promotion currency; `scripts/diagnose_catch_loss.py` learned the new decider ids
+      (event_order / claim_grounding / grounded_semantic) so loss diagnosis stays stage-aware.
+    - **Composition provenance + heuristic tier (design 03).** `CompositeProvenance` gains
+      `member_flagged`, `member_verifications`, and the self-referencing `inner`
+      (schemas.py:212–214; model_rebuild) — all default-empty, leaf verdicts byte-identical.
+      Cascades stop destroying deep provenance: the returned member's provenance rides under
+      `inner` (composite.py:388), **and — beyond the design's letter — a short-circuited cascade
+      also carries its triage's own provenance** (composite.py:360), so an OR-widened gate
+      ensemble stays legible. `CascadeMonitor.self_verifies` delegates to the deep member; the
+      triage gate is deliberately never verified (composite.py:338). `_verify_then_or` sums usage
+      over recorded stage outcomes (the D45-C6 fix; composite.py:201–208). `HeuristicMonitor`
+      (heuristic.py:159) puts the zero-cost floor at the seam — no client, no cache, zero tokens;
+      the pseudo-model convention (never members[0]) is enforced by `composite_manifest` and a
+      unit test, not framework code.
+    - **Eval harness (design 02).** `agentmon.eval.bands.derive_band` (bands.py:41) is the ONE
+      D39/42 implementation — the composite gate imports it, no second copy. Bands are versioned
+      config (configs/bands/{agentnom-local,agentmon-local-gemma}.yaml): the loader re-derives
+      every `d39-generous-window` band from its recorded dev rate and REFUSES mismatches;
+      `d39-handset` is legal only for `agentnom-local` (bands.py:145–176). The D33d freeze SHAs
+      live in configs/freeze/gate2.yaml, pinned by a literal-duplicating test. `run_gate` /
+      `enforce` (gate.py:105/206) reproduce `band_check`'s reason strings verbatim, pinned by the
+      parity oracle over all 10 committed rows — including Gemma-deception's recorded
+      borrowed-band halt string, and the D42 relabel replayed as a regression test
+      (tests/test_gate_parity.py). Accounting is provenance- and stage-aware (`n_calls`,
+      accounting.py:47: member fan-out via provenance, member verifications via the
+      `inner`-walking chain, per-stage calls when recorded). `scripts/test_run.py` /
+      `dev_eval.py` are thin adapters; the `--confirm-phase4` / `--confirm-post-freeze` refusals
+      stayed script-side, never in the library.
+    - **Composite gate (design 03).** `own_modes` / `leaf_members` / `composite_manifest`
+      (structural freeze: member ids, model pins, GATE-2 prompt SHAs, pipeline stage ids) /
+      two-pass `replay_coverage` (draw keys AND reconstructed verification keys) /
+      `composite_band_check` with the escalation band and the gate-miss ≠ catch-loss split
+      (gate.py:276–614). **Naming call:** the composite verdict type is `CompositeGateResult`
+      (gate.py:501) — design 03 named both results `GateResult`; the leaf `GateResult` is a
+      persisted schema model, so the composite one is named apart. **Guard-relocation call:**
+      design 02's "report-only run_gate note when a self-verifying evaluator is gated with a
+      non-default pipeline" did not land as a note — the guard landed structurally instead, as
+      the manifest's pipeline-stage-id pin plus `scripts/test_run_composite.py`'s stage-id
+      preflight; the C6-composite undercount stays documented at `n_calls`.
+    - **Runner retirement + CLI engine swap (candidate-5 rider).** `complete_cached` /
+      `load_cached_response` relocated verbatim to `agentmon.cache` (cache.py:27/35);
+      `runner.py` deleted; `agentmon run` drives `run_calibrated(k=1, temperature=0.0,
+      verify=False)` (cli.py:191–202) — one scoring path, one cache contract. **Ambiguity call:**
+      entries the retired runner scheme wrote are orphaned (never read, never deleted); a fresh
+      `agentmon run` re-calls once per (monitor, transcript) and caches under `sample_cache_key`.
+      Output shape unchanged (k=1 wraps exactly one sample; that MonitorVerdict prints).
+    - **Offline grounding validation executed ($0, zero completions).** Design 01 Instrument 2
+      landed as the would-ground column in `scripts/diagnose_catch_loss.py`: every
+      mechanical-path flip on the frozen Qwen test verdicts also reports its view-true
+      `ground_evidence` status (descriptive — nothing re-scored). Reconciliation as
+      pre-registered: all 6 indent/whitespace/ellipsis/miscitation-class draws ground, all 4
+      paraphrase-class draws stay ungrounded, and se-bla-05's indent entries come back
+      `normalized`. Design 05 Validation 4 ran as `scripts/dev_grounding_replay.py` — every
+      flagged dev∩tinygrad draw cache-replayed on both substrates through a no-call client,
+      `quotes_match` vs view-true grounding, conversion matrix by root-cause class
+      (`results/dev-grounding-replay/`). Acceptance PASS on both substrates:
+      indent/whitespace-class entries convert 20/20 (Qwen) and 7/7 (Gemma), paraphrase-class
+      converts 0/22 and 0/17, zero legacy-match reversals.
+    - **NOT executed, and what each waits on.** (a) The grounding A/B arm B (design 01
+      Phase 5): `scripts/grounding_ab.py` is delivered behind `--execute`; waits on a declared
+      live-substrate dev round (tunnel up), judged by the pre-registered Instrument-3 criteria.
+      The legacy-vs-calibrated budget A/B (design 01 Phase 6) waits on the same live round and
+      has NO delivered runner yet — `RenderBudget.calibrated` is in place
+      (rendering.py:146), but no script constructs a calibrated-budget arm; delivering that
+      runner is part of declaring the round. (b) Claim-grounding cache population +
+      the 12-transcript panel (`scripts/dev_stage_eval.py --arm claim-grounding --execute`): the
+      same live gate; the v2 promotion decision (design 04 Phase 6) waits on those numbers plus
+      (c). (c) The offline replay probes — `dev_stage_eval.py --arm event-order` (zero-kill
+      certification) and `scripts/dev_composite_verified_eval.py` (the verified-composite dev
+      baseline, whose dev rates are the input to any composite band): delivered, not yet run;
+      they need only the machine-local verify=True caches. (d) The composite sealed-test read:
+      `scripts/test_run_composite.py --go` waits on an explicit user GO recorded here first
+      (design 03 Phase 4), after (c) supplies the dev rates and the semantics-choice entry.
+      (e) Any sealed re-score under v2 or the grounded pipeline is GATE-3 — a separate declared
+      gate, never a refactor rider. `results/` gained only `dev-render-calibration/` and
+      `dev-grounding-replay/`; nothing existing was modified; the sealed test split was never
+      re-scored (the would-ground column re-reads the frozen Qwen test verdicts descriptively,
+      the declared consistency-check exemption in design 01's ground rule).

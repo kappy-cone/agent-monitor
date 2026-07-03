@@ -34,6 +34,13 @@ is **not** committed — this file is the durable record.
 > (golden master green), and event-order (F-A) + claim-grounding (F-B) ship as opt-in, dev-only
 > stages. Candidate 4 (render-decoupled grounding) remains the natural next new stage.
 
+> **Follow-through** (2026-07-03, `monitor-composition` branch; DECISIONS 46). The seam now also
+> carries the view-true grounded stages (`NormalizedGroundingStage` / `GroundedSemanticStage`,
+> designs 01+05), `ScopedStage` + confirm/terminal-uphold semantics, and the versioned
+> `pipeline_v2` promotion candidate with `agentmon.eval.stage_report` as its evidence standard
+> (design 04). The promotion evidence runs remain gated: the live dev arms are delivered but not
+> executed, and any sealed re-score is GATE-3.
+
 **Files:** `src/agentmon/calibration.py` (`run_calibrated` 398–408, `verify_sample` 225–274,
 `quotes_match` 208–222), `src/agentmon/schemas.py` (`VerificationOutcome` 134–158).
 
@@ -93,6 +100,18 @@ Refactor in two phases against it:
 
 ## 2 · Lift the QC band gate out of scripts into the eval harness — **Strong**
 
+> **Implemented** (2026-07-03, `monitor-composition` branch; DECISIONS 46). The gate is now
+> `agentmon.eval` — `run_gate`/`enforce` in `eval/gate.py` with reason strings pinned by a parity
+> oracle over the 10 committed rows (`tests/test_gate_parity.py`, incl. the Gemma-deception halt
+> string and the D42 relabel as a regression test); bands are versioned config
+> (`configs/bands/*.yaml`) whose loader re-derives every `d39-generous-window` band from its
+> recorded dev rate and refuses mismatches (the pre-rule Qwen `d39-handset` file loads verbatim,
+> legal only for `agentnom-local`), with the D33d freeze SHAs in `configs/freeze/gate2.yaml`;
+> accounting is provenance- and stage-aware. `scripts/test_run.py` / `dev_eval.py` shrank to
+> thin adapters
+> (refusal guards kept script-side); the composite-aware slice (design 03) lives in the same
+> module.
+
 **Files:** `scripts/test_run.py` (`band_check` 132–168, `FLAG_BANDS` 66–72, `_own_mode_tp` 85–95,
 `flip_report` 98–114, catch-loss guard 152–161), `scripts/dev_eval.py` (`summarize` 172–261,
 `run_cost_usd` 152–161, `n_calls` 164–169, `build_live_client` 76–102).
@@ -133,6 +152,16 @@ the glossary).
 > a generalist→specialist cascade saving ~73–78% of deep evaluations; composite × verification and
 > composite bands are a live-box step (the verification pass re-checks only the ensemble driver).
 
+> **Follow-through** (2026-07-03, `monitor-composition` branch; DECISIONS 46). Composite
+> provenance is now legible end-to-end (`member_flagged`, `member_verifications`, recursive
+> `inner` so cascades stop destroying deep provenance), cascades delegate `self_verifies` to
+> their deep member, and `HeuristicMonitor` sits at the seam as an OR-widener candidate. The
+> composite QC gate (`agentmon.eval.gate.composite_band_check`, structural-freeze manifest,
+> two-pass `replay_coverage`) plus the delivered runners
+> (`scripts/dev_composite_verified_eval.py`, `scripts/test_run_composite.py`) close the live-box
+> gap — the verified dev probe has not yet been run, and the sealed read waits on an explicit
+> user GO (design 03 Phase 4).
+
 **Files:** `src/agentmon/monitors/base.py` (`Monitor` 178–260), `src/agentmon/calibration.py`
 (flat monitor×transcript loop 378–430), `src/agentmon/eval/metrics.py` (per-monitor only 315–378),
 `FINDINGS.md` (ensemble rows, pending).
@@ -159,6 +188,17 @@ loop never learns a monitor composes.
 ---
 
 ## 4 · Render-decoupled grounding + token-aware budget — **Strong**
+
+> **Implemented** (2026-07-03, `monitor-composition` branch; DECISIONS 46). Designs 01+05 merged:
+> `src/agentmon/rendering.py` owns the format, the per-event cap, `RenderBudget` (chars-per-token
+> calibrated offline from the 990 committed sample records per substrate, pinned at 3.0/3.0 with
+> the rule recorded before the numbers were read; `results/dev-render-calibration/`), the
+> `bracket` overflow policy, and view-true grounding
+> (exact/normalized/ellipsis/relocated/elided/unmatched/no_such_event — grounding checks the
+> monitor's view, never an uncapped re-render). Opt-in `NormalizedGroundingStage` +
+> `GroundedSemanticStage` (new cache-key kind) hang off the candidate-1 seam;
+> `default_pipeline()`, every sample cache key, and the golden master are byte-untouched. The
+> live dev A/B (`scripts/grounding_ab.py`) is delivered but not executed.
 
 **Files:** `src/agentmon/monitors/base.py` (`render_event` 56–76, `render_transcript` 79,
 `build_prompt` token×4 budget 218), `src/agentmon/calibration.py` (`quotes_match` substring match
@@ -190,6 +230,12 @@ private to the module.
 ---
 
 ## 5 · Retire the legacy single-pass scoring path — Worth exploring
+
+> **Implemented** (2026-07-03, `monitor-composition` branch; DECISIONS 46). `complete_cached` /
+> `load_cached_response` relocated to `agentmon.cache` first (they had grown callers in
+> `calibration.py` and `verification.py`); `runner.py` deleted; `agentmon run` now drives
+> `run_calibrated(k=1, temperature=0, verify=False)` — one scoring path, one cache contract.
+> Entries written under the retired runner key scheme are orphaned (never read, never deleted).
 
 **Files:** `src/agentmon/runner.py` (`run_monitors`, `cache_key` 28–81), `src/agentmon/calibration.py`
 (`_complete_cached` 191–205, `sample_cache_key` 90–122), `src/agentmon/cli.py` (183).

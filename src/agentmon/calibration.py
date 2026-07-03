@@ -21,7 +21,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-from agentmon.runner import complete_cached
+from agentmon.cache import complete_cached
 from agentmon.schemas import (
     CalibratedVerdict,
     MonitorVerdict,

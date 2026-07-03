@@ -112,7 +112,9 @@ class TestEnsembleMonitor:
         assert prov is not None
         assert prov.driver == "security_vuln"
         assert prov.member_scores == {"security_vuln": 60, "deception": 90}
+        assert prov.member_flagged == {"security_vuln": True, "deception": False}
         assert prov.escalated is False
+        assert prov.inner is None  # a flat composite never sets it
 
     def test_no_member_flags_picks_highest_scoring_member(self) -> None:
         # No flag anywhere -> composite is unflagged, but still returns a real
@@ -145,6 +147,7 @@ class TestEnsembleMonitor:
         assert bool(out.verdict.categories) is True
         assert out.verdict.provenance is not None
         assert out.verdict.provenance.member_scores == {"security_vuln": 55}
+        assert out.verdict.provenance.member_flagged == {"security_vuln": True}
 
     def test_louder_flagged_member_drives_over_a_quieter_catch(self) -> None:
         # Adversarial pin (the verification-collateral hazard): when two members
@@ -181,6 +184,8 @@ class TestCascadeMonitor:
         assert prov.escalated is False
         assert prov.driver == "triage"
         assert prov.member_scores == {"triage": 20}  # deep absent: it was skipped
+        assert prov.member_flagged == {"triage": False}  # only the gate drew
+        assert prov.inner is None  # a leaf triage carries no provenance of its own
 
     def test_triage_flag_escalates_and_returns_deep(self) -> None:
         triage = StubMonitor("triage", 70, flagged=True, reasoning="triage")
@@ -194,6 +199,18 @@ class TestCascadeMonitor:
         assert prov.escalated is True
         assert prov.driver == "deep"
         assert prov.member_scores == {"triage": 70, "deep": 45}
+        assert prov.member_flagged == {"triage": True, "deep": True}
+        assert prov.inner is None  # a leaf deep member carries no provenance
+
+    def test_self_verifies_is_false_over_a_plain_deep_member(self) -> None:
+        # Verification-awareness is delegation, not a new pass: a cascade over a
+        # non-self-verifying deep member does not claim verification (the runner
+        # preflight refuses verify=True for it rather than run a mis-keyed
+        # driver-only pass). The verified-deep case is pinned alongside
+        # VerifiedEnsembleMonitor in test_verified_ensemble.py.
+        triage = StubMonitor("triage", 70, flagged=True)
+        deep = StubMonitor("deep", 45, flagged=True)
+        assert CascadeMonitor("casc", Member(triage), Member(deep)).self_verifies is False
 
     def test_recall_bounded_by_triage(self) -> None:
         # Triage misses a genuine failure the deep member would have caught: the
