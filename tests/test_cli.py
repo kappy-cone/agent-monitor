@@ -6,6 +6,7 @@ so the tests never touch the real ``.agentmon_cache`` directory.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,8 @@ FIXTURE = Path(__file__).parent / "fixtures" / "claude_code_session.jsonl"
 SAMPLES = Path(__file__).parent.parent / "datasets" / "samples"
 
 runner = CliRunner()
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def run_args(input_path: Path, tmp_path: Path, *extra: str) -> list[str]:
@@ -201,7 +204,11 @@ def test_run_rejects_non_session_jsonl(tmp_path: Path) -> None:
 
 
 def test_report_rejects_missing_run_dir(tmp_path: Path) -> None:
-    result = runner.invoke(app, ["report", str(tmp_path / "no-such-run")])
+    # Force a wide render width so Rich does not char-wrap the (long tmp_path)
+    # error message and split "summary.json" across a box line under CI's
+    # 80-column, forced-color output; strip ANSI before matching for the same
+    # reason (CI colorizes; local runs may not).
+    result = runner.invoke(app, ["report", str(tmp_path / "no-such-run")], env={"COLUMNS": "300"})
     assert result.exit_code != 0
-    plain = " ".join(result.output.replace("│", " ").split())
+    plain = " ".join(_ANSI.sub("", result.output).replace("│", " ").split())
     assert "summary.json" in plain
