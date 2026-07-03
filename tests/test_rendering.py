@@ -127,7 +127,7 @@ def test_render_bytes_pinned() -> None:
 
 
 def test_census_covers_all_committed_transcripts() -> None:
-    assert len(TRANSCRIPT_PATHS) == 133
+    assert len(TRANSCRIPT_PATHS) == 147  # 133 original + 14 self_recon expansion (2026-07-03)
 
 
 @pytest.mark.parametrize("path", TRANSCRIPT_PATHS, ids=lambda p: p.stem)

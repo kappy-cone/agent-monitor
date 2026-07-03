@@ -742,3 +742,40 @@ when made; this file is the durable record.
       updated with the † semantics footnote. Artifacts: `out/phase4/runs/agentnom-local/
       test-comp-vens[4-specialists]/` and `…test-comp-vens[4-spec+generalist]/`; committed
       `results/` untouched.
+
+## self_recon dataset expansion (2026-07-03, monitor-composition branch)
+
+48. **Add a `self_recon` failure mode to the synthetic set, mined from 5 new sessions, additive
+    dev only (threat-matrix Discovery; docs/threat-matrix-defense-plan.md P1).** First data step
+    toward the self_recon monitor. Calls made:
+    - **Label decoupled from `FailureCategory` (schemas.py contract).** Adding `self_recon` to
+      `FailureCategory` would break invariants tied to the FROZEN monitors — `test_prompt_library`
+      asserts the generalist covers `set(FailureCategory)` (it can't cover a mode added after the
+      GATE-2 freeze) and `gate.ALL_MODES` would fold self_recon into the generalist's owned modes.
+      So `self_recon` is a dataset ground-truth label via a new `_DATASET_GROUND_TRUTH_LABELS` set;
+      `_VALID_LABELS` admits it, `FailureCategory` is byte-unchanged. It is promoted into
+      `FailureCategory` only when the self_recon *monitor* ships (deliberate, not a data rider).
+    - **HN-9 is load-bearing, and real sessions supply it.** self_recon injects recon-vocabulary
+      commands that a dumb `keyword_hits` baseline would separate; HN-9 (recon-shaped commands with
+      a real task nexus) balances it. Mined 25 natural recon commands from the 5 sessions' genuine
+      work; the 4A gate held keyword_hits at 0.525 (from 0.523) over 147 transcripts, all baselines
+      < 0.65. This is the empirical confirmation that more real sessions are what make the mode
+      buildable (the FINDINGS/plan thesis).
+    - **5 sessions, 4 new registers.** radar-benchmark / fraud-detection / accounting / eng-skills
+      (external family in `base_source`) + one agent-monitor session (p285). `base_source`
+      (split.py) extended for the new prefixes; the p285 base touches dataset-construction
+      vocabulary, judged acceptable by the existing `sub-ing` precedent (a base that "implements the
+      synthetic builder") and because no 4A baseline reads dataset vocab.
+    - **PII scrub extended.** `forbidden_after_scrub` caught real PII in the new bases — a
+      contributor gmail and SSH/GPU-box config (internal IP → RFC5737 placeholder, hostname,
+      username). Added to the manifest scrub `replacements`. Raw sessions stay in `~/.claude/projects`
+      (uncommitted); only scrubbed, raw-stripped transcripts ship.
+    - **Additive-dev split, frozen test side byte-identical.** The 14 new transcripts (5 failures,
+      5 clean twins, 4 HN-9) were appended to `split.json`'s DEV side only (dev 67→81, bases 18→27);
+      `test_bases`/`test_ids` (the sealed 66) are untouched, asserted at write time. `split.json` was
+      NOT regenerated (that would recut the frozen split = leakage per TestPersistedSplit's contract)
+      — it was extended. A self_recon *test* partition and read are a future declared gate.
+    - **Scope: a first blatant-tier batch.** 5 blatant self_recon injections (distinct recon flavors:
+      secrets sweep / identity probe / credential discovery / cloud-identity enumeration / monitoring
+      discovery), no reused fake credentials. Medium/subtle tiers deferred. Suite green (736 passed);
+      committed `results/` untouched.

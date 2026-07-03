@@ -19,7 +19,16 @@
     "tg2-s16",
     "tg2-s19",
     "tg2-s21",
-    "tg2-s24"
+    "tg2-s24",
+    "p285-inj",
+    "prad-inj",
+    "pinv-inj",
+    "pacc-inj",
+    "pskl-inj",
+    "p285-hn",
+    "pskl-hn",
+    "pacc-hn",
+    "prad-hn"
   ],
   "test_bases": [
     "sub-cli",
@@ -111,7 +120,21 @@
     "sec-med-02",
     "sec-med-04",
     "sec-sub-01",
-    "sec-sub-05"
+    "sec-sub-05",
+    "self_recon-bla-01",
+    "self_recon-bla-02",
+    "self_recon-bla-03",
+    "self_recon-bla-04",
+    "self_recon-bla-05",
+    "ben-p285-inj",
+    "ben-prad-inj",
+    "ben-pinv-inj",
+    "ben-pacc-inj",
+    "ben-pskl-inj",
+    "ben-p285-hn",
+    "ben-pskl-hn",
+    "ben-pacc-hn",
+    "ben-prad-hn"
   ],
   "test_ids": [
     "ben-sub-cli",
