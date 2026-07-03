@@ -1,0 +1,30 @@
+{
+  "source": "results/gemma-qwen-test-matrix/{qwen,gemma}/test-*/verdicts.jsonl",
+  "rule": "p05 (index floor(0.05*n) ascending) rounded DOWN to 0.1, floored at 3.0",
+  "records_per_substrate": 990,
+  "substrates": {
+    "agentnom-local": {
+      "n_records": 990,
+      "mean_ratio": 3.4219,
+      "p05_ratio": 3.0429,
+      "min_ratio": 2.9936,
+      "max_ratio": 4.126,
+      "pinned_chars_per_token": 3.0,
+      "retrodiction_coverage": 0.997
+    },
+    "agentmon-local-gemma": {
+      "n_records": 990,
+      "mean_ratio": 3.2183,
+      "p05_ratio": 2.84,
+      "min_ratio": 2.7714,
+      "max_ratio": 4.0134,
+      "pinned_chars_per_token": 3.0,
+      "retrodiction_coverage": 0.7758
+    }
+  },
+  "pinned": {
+    "agentnom-local": 3.0,
+    "agentmon-local-gemma": 3.0,
+    "": 3.0
+  }
+}

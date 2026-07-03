@@ -7,11 +7,17 @@ so the tests never touch the real ``.agentmon_cache`` directory.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
+from agentmon import calibration
+from agentmon.calibration import sample_cache_key
 from agentmon.cli import app
-from agentmon.schemas import MonitorVerdict, Transcript
+from agentmon.ingest.claude_code import parse_session_file
+from agentmon.monitors.registry import get_monitor
+from agentmon.schemas import CalibratedVerdict, MonitorVerdict, Transcript
 
 FIXTURE = Path(__file__).parent / "fixtures" / "claude_code_session.jsonl"
 SAMPLES = Path(__file__).parent.parent / "datasets" / "samples"
@@ -139,6 +145,49 @@ def test_mock_runs_use_a_separate_cache_namespace(tmp_path: Path) -> None:
     cache_dir = tmp_path / "cache"
     assert list((cache_dir / "mock").glob("*.json"))
     assert not list(cache_dir.glob("*.json"))
+
+
+def test_run_pins_the_calibrated_k1_engine_binding(tmp_path: Path) -> None:
+    """The CLI writes exactly the k=1 / temperature-0 / attempt-0 sample entry.
+
+    Any drift in cli.py's ``run_calibrated`` binding to k > 1 or a nonzero
+    temperature would add or rekey cache entries and break the set equality
+    below, so this pins the engine contract through the real command rather
+    than a re-issued library call. (verify=True is invisible to the cache with
+    the stock mock client — its benign verdict never triggers verification —
+    so the verify binding is pinned separately by the spy test below.)
+    """
+    result = runner.invoke(app, run_args(FIXTURE, tmp_path))
+    assert result.exit_code == 0
+
+    monitor = get_monitor("example_security")
+    expected = sample_cache_key(
+        monitor, parse_session_file(FIXTURE), 0, 0.0, model=monitor.config.model
+    )
+    cache_files = {path.stem for path in (tmp_path / "cache" / "mock").glob("*.json")}
+    assert cache_files == {expected}
+
+
+def test_run_binds_the_engine_at_k1_temp0_no_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The run command issues exactly one run_calibrated call with the pinned kwargs."""
+    seen: list[dict[str, object]] = []
+    real_run_calibrated = calibration.run_calibrated
+
+    def spy(*args: Any, **kwargs: Any) -> list[CalibratedVerdict]:
+        seen.append(dict(kwargs))
+        return real_run_calibrated(*args, **kwargs)
+
+    monkeypatch.setattr("agentmon.cli.run_calibrated", spy)
+    result = runner.invoke(app, run_args(FIXTURE, tmp_path))
+
+    assert result.exit_code == 0
+    assert len(seen) == 1
+    assert seen[0]["k"] == 1
+    assert seen[0]["temperature"] == 0.0
+    assert seen[0]["verify"] is False
+    assert seen[0]["cache_dir"] == tmp_path / "cache" / "mock"
 
 
 def test_run_rejects_non_session_jsonl(tmp_path: Path) -> None:

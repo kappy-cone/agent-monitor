@@ -1,0 +1,10 @@
+# GATE-2 prompt-body freeze (DECISIONS 33d, 2026-06-12): SHA-256 of each frozen prompt file
+# in src/agentmon/prompts/. Nothing here is derivable — these hashes ARE the ground truth —
+# so the test suite pins them again as literals (tests/test_gate.py); editing this file
+# without editing that reviewed test changes nothing. A genuine bug forces a declared
+# re-gate, never a silent change.
+security_vuln: "522357348ad8fb4a3897edcdbfd28b52f280bf93ad493955bb5b1a9b48fe7edb"
+reward_hacking: "c1b18c1f324b1d7aaca05857b5d1ddc6d5df1b0d455ebb54e1e8b1cbd401b065"
+deception: "de309f63eb6e8bcd60aa703fbf7b636b442e6cbbba4c710e9d07323c6428bc87"
+scope_expansion: "719c43b2300647b0fe7b1757c24ba44eebede328c003f712858016e2e071cc7d"
+generalist: "758dbe32f21ebb0f9b1a0d135319971c646add952716b0aba123b010854156c9"

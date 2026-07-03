@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 
 import pytest
@@ -325,3 +326,100 @@ def test_render_never_exceeds_max_chars() -> None:
 def test_config_rejects_nonpositive_transcript_budget() -> None:
     with pytest.raises(ValueError, match="max_transcript_tokens"):
         MonitorConfig(id="m1", model="mock-model", max_transcript_tokens=0)
+
+
+# --- monitor view: additive config fields, the view path, the truncation warning ---
+
+
+def test_frozen_prompt_files_parse_with_legacy_view_defaults() -> None:
+    """The committed prompt files carry neither new field: defaults keep them
+    legacy (chars_per_token 4.0, head policy) and load raises no warning."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        monitors = load_monitors()
+    assert len(monitors) >= 5
+    for monitor in monitors.values():
+        assert monitor.config.chars_per_token == 4.0
+        assert monitor.config.overflow_policy == "head"
+
+
+def test_config_new_fields_parse_from_frontmatter(tmp_path: Path) -> None:
+    content = (
+        "---\n"
+        "id: dev_round\n"
+        "model: mock-model\n"
+        "max_transcript_tokens: 8000\n"
+        "chars_per_token: 3.2\n"
+        "overflow_policy: bracket\n"
+        "---\n"
+        "Review this:\n{{transcript}}\n"
+    )
+    path = tmp_path / "dev_round.md"
+    path.write_text(content, encoding="utf-8")
+    monitor = Monitor.from_file(path)
+    assert monitor.config.chars_per_token == 3.2
+    assert monitor.config.overflow_policy == "bracket"
+
+
+def test_config_warns_when_tight_margin_meets_head_policy() -> None:
+    """chars_per_token < 4.0 with the head policy is self-inflicted truncation."""
+    with pytest.warns(UserWarning, match="bracket"):
+        MonitorConfig(id="m1", model="mock-model", chars_per_token=3.2)
+
+
+def test_config_no_warning_for_bracket_or_legacy_margin() -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        MonitorConfig(id="m1", model="mock-model")
+        MonitorConfig(id="m1", model="mock-model", chars_per_token=3.2, overflow_policy="bracket")
+        MonitorConfig(id="m1", model="mock-model", chars_per_token=4.5)
+
+
+def test_config_rejects_unknown_overflow_policy() -> None:
+    with pytest.raises(ValueError, match="overflow_policy"):
+        MonitorConfig(id="m1", model="mock-model", overflow_policy="middle")  # type: ignore[arg-type]
+
+
+def test_monitor_view_default_is_the_legacy_render() -> None:
+    monitor = make_monitor()
+    transcript = full_transcript()
+    view = monitor.view(transcript)
+    assert view.text == render_transcript(transcript)
+    assert view.elided == ()
+    assert view.transcript_id == "t-full"
+
+
+def test_build_prompt_goes_through_the_view() -> None:
+    monitor = make_monitor()
+    transcript = full_transcript()
+    expected = monitor.template.replace("{{transcript}}", monitor.view(transcript).text)
+    assert monitor.build_prompt(transcript) == expected
+
+
+def test_build_prompt_with_bracket_policy_elides_the_middle() -> None:
+    config = MonitorConfig(
+        id="m-bracket", model="mock-model", max_transcript_tokens=100, overflow_policy="bracket"
+    )
+    monitor = Monitor(config=config, template="Review this:\n{{transcript}}\nRespond in JSON.")
+    events = [UserMessage(index=i, text=f"message {i} " + "y" * 100) for i in range(10)]
+    transcript = Transcript(id="t-elide", source="synthetic", events=events)
+    prompt = monitor.build_prompt(transcript)
+    assert " elided: " in prompt
+    assert "[0] USER: message 0" in prompt
+    assert "[9] USER: message 9" in prompt
+
+
+def test_monitor_view_respects_chars_per_token() -> None:
+    config = MonitorConfig(
+        id="m-tight",
+        model="mock-model",
+        max_transcript_tokens=100,
+        chars_per_token=3.0,
+        overflow_policy="bracket",
+    )
+    monitor = Monitor(config=config, template="{{transcript}}")
+    events = [UserMessage(index=i, text=f"message {i} " + "y" * 100) for i in range(10)]
+    transcript = Transcript(id="t-tight", source="synthetic", events=events)
+    view = monitor.view(transcript)
+    assert len(view.text) <= 300  # 100 tokens * 3.0 chars/token
+    assert view.elided

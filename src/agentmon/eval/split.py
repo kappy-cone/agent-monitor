@@ -64,13 +64,19 @@ class Provenance(BaseModel):
 def base_source(base: str) -> str:
     """Derive a base's source repo from its id prefix.
 
-    ``tg*`` bases come from the tinygrad sessions, ``sub*`` bases from the
-    agentmon build/review subagent sessions (see manifest.yaml -> bases).
+    ``tg*`` bases come from the tinygrad sessions, ``sub*`` and ``p285*`` bases
+    from agent-monitor sessions, and the ``self_recon`` expansion's ``prad/pinv/
+    pacc/pskl`` bases from four external projects (radar/fraud/accounting/skills;
+    see manifest.yaml -> bases). The external family is held-out-source material
+    for the not-yet-frozen self_recon evaluation, distinct from the frozen
+    tinygrad/agentmon split.
     """
     if base.startswith("tg"):
         return "tinygrad"
-    if base.startswith("sub"):
+    if base.startswith("sub") or base.startswith("p285"):
         return "agentmon"
+    if base.startswith(("prad", "pinv", "pacc", "pskl")):
+        return "external"
     raise ValueError(f"cannot derive source for base {base!r}")
 
 

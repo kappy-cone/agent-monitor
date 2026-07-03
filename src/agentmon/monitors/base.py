@@ -1,112 +1,69 @@
-"""Monitor abstraction: prompt files, transcript rendering, and verdict parsing.
+"""Monitor abstraction: prompt files, prompt building, and verdict parsing.
 
 A :class:`Monitor` is a prompt template plus a :class:`MonitorConfig`, loaded
 from a markdown file with YAML frontmatter. It renders a transcript into a
-numbered plain-text view, asks an LLM for a verdict, and defensively parses
-the response into a :class:`~agentmon.schemas.MonitorVerdict`.
+numbered plain-text view (via :mod:`agentmon.rendering`), asks an LLM for a
+verdict, and defensively parses the response into a
+:class:`~agentmon.schemas.MonitorVerdict`.
+
+``render_event`` and ``render_transcript`` moved to :mod:`agentmon.rendering`
+and are re-exported here so existing importers keep working unchanged.
 """
 
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
+
+if TYPE_CHECKING:
+    from agentmon.calibration import DrawContext, DrawResult
 
 from agentmon.llm.client import LLMClient, LLMResponse
+from agentmon.rendering import MonitorView, OverflowPolicy, RenderBudget, build_view
+from agentmon.rendering import render_event as render_event  # redundant alias: re-export
+from agentmon.rendering import render_transcript as render_transcript  # redundant alias: re-export
 from agentmon.schemas import (
-    AssistantMessage,
-    Event,
     Evidence,
     FailureCategory,
-    FileDiff,
     MonitorVerdict,
-    ShellCommand,
-    ToolCall,
-    ToolResult,
     Transcript,
-    UserMessage,
 )
-
-_EVENT_CHAR_CAP = 2000
-_EVENT_TRUNCATION_MARKER = "...[truncated]"
 
 
 class MonitorConfig(BaseModel):
-    """Monitor settings parsed from a prompt file's YAML frontmatter."""
+    """Monitor settings parsed from a prompt file's YAML frontmatter.
+
+    ``chars_per_token`` and ``overflow_policy`` are additive fields with legacy
+    defaults: the frozen prompt files carry neither, so their parsed config and
+    every sample cache key are unchanged. The knobs are usable only by future
+    dev-round monitors.
+    """
 
     id: str
     description: str = ""
     categories: list[FailureCategory] = Field(default_factory=list)
     model: str
     max_transcript_tokens: int = Field(default=16000, gt=0)
+    chars_per_token: float = Field(default=4.0, gt=0)
+    overflow_policy: OverflowPolicy = "head"
 
-
-def _indent_continuation(entry: str) -> str:
-    """Indent every line after the first so multi-line payloads stay readable."""
-    first, _, rest = entry.partition("\n")
-    if not rest:
-        return first
-    indented = "\n".join(f"    {line}" for line in rest.split("\n"))
-    return f"{first}\n{indented}"
-
-
-def render_event(event: Event) -> str:
-    """Render one event as a numbered entry monitors can cite by index."""
-    if isinstance(event, UserMessage):
-        body = f"USER: {event.text}"
-    elif isinstance(event, AssistantMessage):
-        body = f"ASSISTANT: {event.text}"
-    elif isinstance(event, ToolCall):
-        body = f"TOOL_CALL {event.tool}: {json.dumps(event.tool_input, sort_keys=True)}"
-    elif isinstance(event, ToolResult):
-        # Error markers lead the entry so per-event truncation can never eat them.
-        flag = " [error]" if event.is_error else ""
-        body = f"TOOL_RESULT ({event.tool or 'unknown'}){flag}: {event.content}"
-    elif isinstance(event, ShellCommand):
-        flag = " [error]" if event.is_error else ""
-        body = f"SHELL{flag} $ {event.command} -> {event.output}"
-    elif isinstance(event, FileDiff):
-        flag = " [error]" if event.is_error else ""
-        body = f"FILE_DIFF{flag} {event.path}: {event.diff}"
-    else:  # OtherEvent is the only remaining kind in the Event union.
-        body = f"OTHER: {event.description}"
-    return _indent_continuation(f"[{event.index}] {body}")
-
-
-def render_transcript(transcript: Transcript, max_chars: int = 64000) -> str:
-    """Render a transcript as numbered plain-text entries, one per event.
-
-    Each entry is capped at 2000 chars; the whole rendering is capped at
-    ``max_chars``, with an explicit marker for any events dropped. Pure and
-    deterministic: the same transcript always renders identically.
-    """
-    parts: list[str] = []
-    used = 0
-    truncated = False
-    for event in transcript.events:
-        entry = render_event(event)
-        if len(entry) > _EVENT_CHAR_CAP:
-            entry = entry[:_EVENT_CHAR_CAP] + _EVENT_TRUNCATION_MARKER
-        cost = len(entry) + (1 if parts else 0)  # +1 for the joining newline
-        if used + cost > max_chars:
-            truncated = True
-            break
-        parts.append(entry)
-        used += cost
-    if truncated:
-        # Drop tail entries until the truncation marker itself fits the budget,
-        # so the rendering never exceeds max_chars.
-        while True:
-            remaining = len(transcript.events) - len(parts)
-            marker = f"[transcript truncated: {remaining} more events]"
-            rendered = "\n".join([*parts, marker])
-            if len(rendered) <= max_chars or not parts:
-                return rendered
-            parts.pop()
-    return "\n".join(parts)
+    @model_validator(mode="after")
+    def _warn_on_self_inflicted_truncation(self) -> MonitorConfig:
+        """A tighter chars-per-token margin plus head truncation drops late evidence."""
+        if self.chars_per_token < 4.0 and self.overflow_policy == "head":
+            warnings.warn(
+                f"monitor {self.id!r}: chars_per_token={self.chars_per_token} shrinks the "
+                "render budget while overflow_policy='head' drops whole events from the "
+                "tail — late evidence can be silently truncated; use "
+                "overflow_policy='bracket'",
+                stacklevel=2,
+            )
+        return self
 
 
 def _parse_json_object(text: str) -> dict[str, Any]:
@@ -213,11 +170,22 @@ class Monitor:
             raise ValueError(f"{path}: invalid monitor config: {exc}") from exc
         return cls(config=config, template="\n".join(lines[end + 1 :]))
 
+    def view(self, transcript: Transcript) -> MonitorView:
+        """The exact transcript view this monitor's prompt embeds.
+
+        Grounding must check against this view — the bytes the monitor saw —
+        never an uncapped re-render.
+        """
+        budget = RenderBudget(
+            max_tokens=self.config.max_transcript_tokens,
+            chars_per_token=self.config.chars_per_token,
+        )
+        return build_view(transcript, budget, self.config.overflow_policy)
+
     def build_prompt(self, transcript: Transcript) -> str:
-        """Substitute the rendered transcript into the prompt template."""
-        rendered = render_transcript(transcript, max_chars=self.config.max_transcript_tokens * 4)
+        """Substitute the monitor's transcript view into the prompt template."""
         # str.replace, not str.format: prompt bodies contain literal JSON braces.
-        return self.template.replace("{{transcript}}", rendered)
+        return self.template.replace("{{transcript}}", self.view(transcript).text)
 
     def verdict_from_response(self, transcript_id: str, response: LLMResponse) -> MonitorVerdict:
         """Defensively parse a model response into a verdict.
@@ -257,3 +225,16 @@ class Monitor:
         prompt = self.build_prompt(transcript)
         response = client.complete(prompt, model=self.config.model, temperature=0.0)
         return self.verdict_from_response(transcript.id, response)
+
+    def evaluate_once(self, ctx: DrawContext) -> DrawResult:
+        """Produce one calibrated scoring draw — the leaf of the composition seam.
+
+        A leaf monitor and a composite both expose ``evaluate_once``, so the
+        calibrated scoring loop drives either through the same call. The leaf
+        runs one parse-hardened, cached completion; a composite combines member
+        draws. The delegate is imported lazily because the parse-hardening logic
+        lives in ``agentmon.calibration``, which sits above this module.
+        """
+        from agentmon.calibration import evaluate_leaf_draw
+
+        return evaluate_leaf_draw(self, ctx)

@@ -65,6 +65,47 @@ thin (0.642) and is the first thing to improve when the benign pool scales.
 Matched-pair deltas are class-balanced (mean +2.3 to +4.9 events per class, median +4):
 injection size itself does not encode the label.
 
+#### self_recon expansion (2026-07-03) — additive dev, re-gated over 147 transcripts
+
+A new failure mode, `self_recon` (agent self-reconnaissance; the threat-matrix Discovery
+tactic — see `docs/threat-matrix-defense-plan.md` and `TAXONOMY.md`), added as **dev-only**
+material from five new sessions across four new registers (radar / fraud-detection /
+accounting / eng-skills, plus one agent-monitor session). 14 new transcripts: 5 blatant
+`self_recon` failures, their 5 clean twins, and 4 HN-9 hard negatives. The frozen 133-row
+test split is byte-untouched; the new bases/ids were appended to the split's **dev** side.
+
+Re-gated 4A over all 147 (65 failure-labeled / 82 benign) — **all baselines pass**:
+
+| Baseline | Power | Δ vs 133 |
+| --- | --- | --- |
+| n_events | 0.564 | −0.022 |
+| total_chars | 0.586 | −0.014 |
+| keyword_hits | **0.525** | **+0.002** |
+| comment_density_in_diffs | 0.505 | −0.003 |
+| file_diff_fraction | 0.643 | +0.001 |
+| shell_error_fraction | 0.584 | −0.003 |
+| unified_diff_markers | 0.500 | 0.000 |
+
+The load-bearing result is `keyword_hits`: `self_recon` injects recon-vocabulary commands
+(`env|grep KEY`, `cat ~/.aws/credentials`, `ps aux|grep monitor`), which a keyword baseline
+would separate — **unless** recon-shaped commands appear at comparable density on the benign
+side. HN-9 supplies exactly that: **25 natural recon commands** (real `ls -ld ~/.ssh`, `find`,
+`ls -la`, environment inventory) mined from the five sessions' genuine debugging/setup work.
+The baseline held at 0.525 (from 0.523), confirming real-session hard negatives are what make
+this mode buildable.
+
+4B notes for the expansion: (a) matched-pair fidelity — each failure differs from its clean
+twin only by the injected recon subplot (thinking → self-orienting message → recon command);
+(b) cross-instance variation — the five injections use distinct recon flavors and no reused
+fake credentials/IPs/accounts; (c) the injected fake secrets dodge the `forbidden_after_scrub`
+deny-list; (d) the `p285` (agent-monitor) base touches dataset-construction vocabulary, which
+is consistent with the existing `sub-ing` base ("implement … synthetic builder") and is not
+read by any 4A baseline (which scan for `secret|credential|hack|…`, never dataset vocab);
+(e) real PII in the new bases (a contributor gmail, SSH/GPU-box config: internal IP, hostname,
+username) was caught by `forbidden_after_scrub` and added to the scrub profile. The
+`self_recon` set is a first blatant-tier batch; medium/subtle tiers and a declared test read
+are future work.
+
 ### 4B — realism catalog
 
 Four audits over the generated set: matched-pair diffs (every mode×tier cell plus hard

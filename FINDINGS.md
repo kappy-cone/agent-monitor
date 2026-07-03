@@ -36,9 +36,20 @@ bands (DECISIONS 42).
 | reward_hacking | 0.924 | 0.129 | 0.129 | 0 | $0 | final |
 | deception | 0.775 | 0.097 | 0.194 | 5 (1 HN: hn5-a) | $0 | final |
 | generalist | 0.722\* | 0.290 | 0.387 | 1 (hn2-c) | $0 | final |
-| ensemble: max(4 specialists) | — | — | — | — | — | pending |
-| ensemble: max(all 5) | — | — | — | — | — | pending |
+| ensemble: verified max(4 specialists)† | 0.891\* | 0.323 | 0.387 | 6 (2 HN: hn2-c, hn5-a) | $0 replay | final |
+| ensemble: verified max(all 5)† | 0.888\* | 0.258 | 0.452 | 6 (2 HN: hn2-c, hn5-a) | $0 replay | final |
 | **heuristic floor (regex/event stats)** | **0.601** | **0.000** | **0.000** | **13/35 (4 HN)** | **$0 / ~0 ms** | **final** |
+
+† Filled 2026-07-03 by the gated composite read (DECISIONS 47). The rows were pre-registered as
+bare `max()` ensembles; they are filled by the **self-verifying per-member verify-then-OR**
+variant (`VerifiedEnsembleMonitor`, v1 member verification) — every leaf row above is likewise
+post-verification, and driver-only verification of a plain ensemble was evaluated and rejected
+(DECISIONS 44/45). Pure replay rows over the frozen leaf caches: 0 live requests, composite QC
+gate passed under bands derived blind-to-test from the dev probe
+(`results/dev-composite-probe-verified/`; vens4 dev 23.4% → [0.09, 0.61], vens5 27.9% →
+[0.10, 0.62]). Dev→test transfer held (spec4 AUROC 0.901 dev → 0.891 test). Both ensembles beat
+every leaf on all-mode AUROC (0.891/0.888 vs generalist 0.722\*); recall@5%FPR 0.452 (all-5)
+matches the best own-mode leaf (scope) while covering all four modes.
 
 **Second substrate (Gemma-4-31B, AWQ)** on the identical split — own-AUROC security 0.732, scope
 0.936, reward 0.857, deception 0.688, generalist 0.693 (all-mode); 0 parse-retries/leaks across

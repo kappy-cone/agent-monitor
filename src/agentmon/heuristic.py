@@ -18,7 +18,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from agentmon.calibration import calibrated_score
+from agentmon.calibration import DrawContext, DrawResult, calibrated_score
+from agentmon.monitors.base import MonitorConfig
 from agentmon.schemas import (
     AssistantMessage,
     CalibratedVerdict,
@@ -153,6 +154,27 @@ def heuristic_verdict(transcript: Transcript) -> MonitorVerdict:
         reasoning=f"heuristic subscores: {fired or 'none'}",
         model=MODEL_ID,
     )
+
+
+class HeuristicMonitor:
+    """The regex/event-stat floor as a draw evaluator at the composition seam:
+    no client, no cache, no tokens. Deterministic across ``sample_index`` — all
+    k draws are identical by design, so its contribution to any flagged
+    fraction is {0, 1} (documented k-degeneracy). The pattern weights above
+    stay hand-set and are never tuned against any split.
+    """
+
+    def __init__(self) -> None:
+        self.config = MonitorConfig(id=MONITOR_ID, model=MODEL_ID)
+
+    def evaluate_once(self, ctx: DrawContext) -> DrawResult:
+        return DrawResult(
+            verdict=heuristic_verdict(ctx.transcript),
+            parse_retries=0,
+            parse_repairs=0,
+            extra_input_tokens=0,
+            extra_output_tokens=0,
+        )
 
 
 def heuristic_calibrated(transcripts: Sequence[Transcript]) -> list[CalibratedVerdict]:

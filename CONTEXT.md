@@ -122,8 +122,32 @@ _Avoid_: citation, reference, proof
 
 **Event index**:
 The position of an event within its transcript, used both to cite evidence and to record where a
-failure was injected.
+failure was injected. It remains the citation anchor under every overflow policy — an event is
+either in the view and citable, or elided and named in the gap.
 _Avoid_: position, offset, step number
+
+**Monitor view**:
+The exact rendered text a monitor saw for one transcript — per-event entries after the entry cap,
+under the render budget and overflow policy. The single source of truth grounding checks against.
+_Avoid_: rendering, prompt transcript, context
+
+**Render budget**:
+The transcript-size limit expressed in estimated tokens and converted to characters by a
+calibrated chars-per-token ratio with a safety margin; owns the answer to "will this prompt fit
+the served context?". Replaces the informal times-four character heuristic.
+_Avoid_: char limit, max chars
+
+**Overflow policy**:
+The rule choosing which events fill the render budget when a transcript does not fit: head
+(legacy — keep the front, drop the tail) or bracket (keep the front and the back, elide the
+middle).
+_Avoid_: truncation strategy, windowing
+
+**Elision**:
+An explicitly marked, index-ranged gap in a monitor view; elided events are absent but accounted
+for, never silently dropped. A quote citing only elided events never grounds, and a flag citing
+only elided events is refuted without a model call.
+_Avoid_: truncation (reserved for the per-event cap and the legacy tail-drop marker)
 
 ## Dataset
 
@@ -222,8 +246,63 @@ cost.
 _Avoid_: dummy, baseline
 
 **Ensemble**:
-A combined verdict formed by taking the strongest signal across several monitors.
+A combined verdict formed by taking the strongest signal across several monitors; one kind of
+composite monitor. A composite row carries its own anomaly band, derived from a dev run of the
+composite itself; per-member detail flows through as report-only diagnostics.
 _Avoid_: combination, merging
+
+## Monitor composition
+
+**Composite monitor**:
+A monitor whose read combines member monitors' reads behind the same interface a leaf monitor
+satisfies; it makes no model call of its own. Never auto-discovered — one exists only when a
+caller deliberately builds it.
+_Avoid_: meta-monitor, wrapper
+
+**Cascade / escalation**:
+A composite whose triage member gates a deep member: no triage flag means the deep member never
+runs. The escalation rate is the triage flag rate — the share of transcripts that pay for the
+deep evaluation.
+_Avoid_: hierarchy, two-stage monitor
+
+**Driver**:
+The member whose read a composite returns verbatim — the reasoning, categories, and evidence any
+verification re-check grounds against.
+_Avoid_: winner, primary member
+
+**Member pin**:
+A member-level served-model override, letting one composite combine members read under different
+substrates — the cross-substrate seam.
+_Avoid_: model override (unqualified)
+
+**Self-verifying composite**:
+A composite that verifies each flagged member's own read at that member's served model and
+combines only the survivors — per-member verify-then-OR. The flip applies to member reads, never
+to the composite verdict, and the scoring loop skips its own verification pass for such a
+monitor.
+_Avoid_: self-checking monitor, auto-verified ensemble
+
+**Verify-then-combine / combine-then-verify**:
+The two orderings of verification and composition: per-member verification with survivors
+combined (the recall-protecting order) versus verifying only the combined read's driver, which
+couples every member's catch to the loudest member's evidence — rejected for live use.
+_Avoid_: pre-verification / post-verification
+
+**Gate recall / recall ceiling**:
+A cascade's flag-level recall is bounded by its triage gate's flag recall — the recall ceiling.
+Distinct from recall at a fixed false-alarm budget on the graded score.
+_Avoid_: triage recall (unqualified)
+
+**Gate miss**:
+An own-mode failure a cascade never escalated in any read — the gate's blindness. A cascade-only
+concept, reported separately from catch-loss and never conflated with it.
+_Avoid_: miss (unqualified), false negative
+
+**Structural freeze / composite manifest**:
+A composite is frozen by the fingerprint of its member identities, model pins, member prompt
+hashes, and verification stage list, since it has no prompt body of its own; a silent member or
+pipeline swap changes the fingerprint and halts the row. Extends the freeze.
+_Avoid_: composite hash, config freeze
 
 ## Verification
 
@@ -234,13 +313,130 @@ _Avoid_: double-check, validation
 
 **Flip**:
 A flagged read that verification turns into an unflagged one. Flips on benign transcripts remove
-false alarms; flips on real failures lose catches.
+false alarms; flips on real failures lose catches. Flip rates are reported with their
+mechanical-versus-semantic decomposition (and per-member refutations for self-verifying
+composites) — a report-only shape, never a halt by itself.
 _Avoid_: reversal, correction
+
+**Catch-loss**:
+Verification turning an own-mode true positive from caught to missed — flagged before
+verification, fraction zero after. Counted over transcripts, not per-read flips; the halt guard
+trips when more than half of a row's own-mode true positives are lost.
+_Avoid_: recall loss (unqualified), flip (a flip is per read; catch-loss is the transcript-level
+outcome)
 
 **Flip-on-fail**:
 The rule that an unsupported flag is dropped entirely — a clean per-read decision — rather than
 merely down-weighted.
 _Avoid_: penalize, suppress
+
+**Verification stage**:
+One re-check of a flag — a single way of asking whether the flag holds up. A stage votes to
+refute the flag, uphold it, or abstain, and may make no model call (a mechanical or deterministic
+check) or one bounded call. The mechanical quote-grounding check and the LLM semantic check are
+stages; so are the deterministic event-order check, the LLM claim-grounding check, the
+normalized-grounding diagnostic, and the grounded semantic check.
+_Avoid_: check, pass, verifier
+
+**Verification pipeline**:
+The ordered set of verification stages a flagged read runs through, invoked as one unit. It folds
+the stages' votes into the single recorded outcome and applies the flip rule; a refutation ends
+the run, and so does a confirm. Stages plug in without changing the scoring loop. Named opt-in
+assemblies (the grounded pipeline, the versioned promotion candidates) exist beside the frozen
+default.
+_Avoid_: chain, sequence, verifier stack
+
+**Grounding (cited-event support)**:
+The mechanical question "does the monitor's quoted evidence actually appear in the event it
+cites?", answered against event content independent of the render format. Distinct from
+verification: grounding checks presence; the verification pipeline decides support.
+_Avoid_: quote match (the legacy verbatim mechanism keeps that name), citation check
+
+**View-true grounding**:
+Checking a flag's evidence against the monitor view — the bytes the monitor saw, whitespace-
+normalized — rather than against a re-render the monitor never saw.
+_Avoid_: quote match, re-render check
+
+**Normalized grounding / quote-fidelity tax**:
+Grounding that erases whitespace-and-wrapping render artifacts while keeping content, case, and
+order exact. The quote-fidelity tax is the recall lost when verification refutes correct catches
+over quote transcription noise rather than substance — the tax normalized grounding exists to
+cut.
+_Avoid_: fuzzy matching, loose matching
+
+**Quote relocation**:
+Resolving a verbatim quote cited at the wrong event index to the in-view event it actually lives
+in. Repairs the pointer for the verifier's reading, never the vote.
+_Avoid_: citation repair, index fix
+
+**Confirm (terminal uphold)**:
+A verification-stage vote that upholds a flag and ends the pipeline run, shielding the flag from
+later refuters. Granted only to a category-scoped specialist on a positive finding, never on a
+fail-open; refutation stays terminal always, and a plain uphold stays provisional.
+_Avoid_: approve, accept
+
+**Scoped stage**:
+An adapter that gates a stage on the flag's categories, abstaining outside its scope — how a
+category-specific decider composes into a shared pipeline without deciding other monitors' flags.
+_Avoid_: filtered stage, conditional stage
+
+**Stage confusion accounting**:
+The per-stage dev evaluation of a flip-changing stage against a baseline pipeline: catches killed
+and catches saved on failure reads, false alarms suppressed and restored on benign reads, abstain
+rate, and model calls saved. The promotion currency for any new stage.
+_Avoid_: stage metrics, A/B report
+
+**Pipeline version**:
+A named stage composition. Version one is the frozen default — matching the committed record
+exactly and never edited; version two is the promotion candidate. Promoting a stage means it
+joins the recommended version for new dev work — never an edit to the default.
+_Avoid_: pipeline config, variant
+
+## Test-row gating
+
+**QC gate**:
+The pipeline-quality check run after each read-once row: verdicts plus provenance plus bands in,
+pass-or-halt plus a summary out. Out-of-band means halt and investigate, never tune — the gate
+protects the row's trustworthiness, not its score.
+_Avoid_: quality gate, sanity check
+
+**Anomaly band**:
+A per-row, per-substrate window on the flag rate as the evaluator emits it (pre-verification for
+leaves; post-member-verification for self-verifying composites — the same quantity at derivation
+and check time), derived from dev rates by a pinned blind-to-test rule. A rate outside the band
+signals substrate or pipeline anomaly, not monitor quality.
+_Avoid_: threshold, acceptance range
+
+**Band file**:
+The versioned config recording a substrate's bands together with their derivation inputs (dev
+run, dev rates, rule), so every band is independently recomputable; loading re-derives and
+refuses mismatches, so a hand-edited band cannot load. The single pre-rule Qwen hand-set file
+(`rule: d39-handset`) is the documented exception: its rows carry no dev rate and load
+verbatim, legal only for its own substrate.
+_Avoid_: band config, thresholds file
+
+**Gate result**:
+The typed pass-or-halt artifact of one gated row: halt reasons, flag rate against its band,
+catch-loss counts, flip report, request and cost accounting. Replaces exit-code-plus-convention
+as the gate's contract.
+_Avoid_: gate output, halt record
+
+**Row**:
+One gated evaluator run over the full test split — a leaf monitor or a composite. Bands, request
+ceilings, freeze checks, and ledger entries are per-row.
+_Avoid_: run (unqualified), experiment
+
+**Replay row / gated read**:
+A sealed-test scoring run served entirely from the existing cache by a client that cannot make
+live calls; zero requests is itself a gate condition, and full cache coverage is checked before
+scoring starts.
+_Avoid_: re-run, cache run
+
+**Promotion gate (GATE-3)**:
+The explicit, declared event at which the sealed test split may be re-scored under a named
+pipeline version and composite set, with bands re-derived blind to test — never a silent change
+riding a refactor.
+_Avoid_: re-test, re-score (unqualified)
 
 ## Sampling and splits
 
@@ -272,7 +468,8 @@ _Avoid_: lock
 
 **Transfer row**:
 A re-run of the frozen monitors on a second model to test cross-family robustness, with no prompt
-changes.
+changes. Runs under the target substrate's own band file; borrowing another substrate's bands is
+a documented calibration hazard.
 _Avoid_: secondary model, second run
 
 ## Flagged ambiguities
@@ -289,3 +486,10 @@ _Avoid_: secondary model, second run
   means specifically an un-injected base half.
 - **"test set" vs "test split"** — the **test split** is the sealed evaluation partition; "the
   evaluation set" is the whole labeled set.
+- **"grounding" vs "verification"** — **grounding** checks that quoted evidence is present in the
+  cited event; **verification** decides whether the events support the claim. A grounded quote
+  can still fail verification.
+- **"truncation" vs "elision"** — **truncation** is the per-event cap and the legacy tail-drop
+  marker; **elision** is the bracket policy's named, index-ranged gap in a monitor view.
+- **"catch-loss" vs "gate miss"** — **catch-loss** is verification suppressing a caught failure;
+  a **gate miss** is a cascade never escalating it. The guards are separate and never conflated.

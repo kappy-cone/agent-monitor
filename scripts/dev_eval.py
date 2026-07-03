@@ -14,6 +14,11 @@ Every run writes verdicts + a summary table under ``out/phase3/runs/<label>/``,
 records the SHA-256 of each prompt file (so every iteration round is traceable
 to exact prompt content), and appends to a cumulative spend ledger checked
 against the approved Phase-3 budget.
+
+A thin adapter over ``agentmon.eval`` + ``agentmon.llm.live`` (design 02):
+summaries, accounting, and the ledger live in the library; slice resolution
+(and its seal refusals) deliberately stays HERE — the library never resolves
+slices, so no future script can bypass the seal by accident.
 """
 
 from __future__ import annotations
@@ -22,84 +27,39 @@ import argparse
 import datetime
 import hashlib
 import json
-import os
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
 from agentmon.calibration import run_calibrated  # noqa: E402
-from agentmon.eval.metrics import PRICING, auroc, recall_at_fpr  # noqa: E402
+from agentmon.eval.accounting import (  # noqa: E402
+    LedgerEntry,
+    append_ledger,
+    day_requests,
+    n_calls,
+    quota_day,
+    run_cost_usd,
+)
 from agentmon.eval.split import load_labels, load_split, parse_provenance  # noqa: E402
+from agentmon.eval.summary import render_calibrated_table, summarize_calibrated  # noqa: E402
+from agentmon.eval.workspace import (  # noqa: E402
+    CACHE_DIR,
+    LABELS_PATH,
+    OUT_PHASE3,
+    PROMPTS_DIR,
+    SPLIT_PATH,
+    TRANSCRIPTS_DIR,
+)
 from agentmon.heuristic import heuristic_calibrated  # noqa: E402
+from agentmon.llm import live  # noqa: E402
 from agentmon.llm.mock import MockLLMClient  # noqa: E402
 from agentmon.monitors.registry import load_monitors  # noqa: E402
-from agentmon.schemas import CalibratedVerdict, Transcript  # noqa: E402
+from agentmon.schemas import Transcript  # noqa: E402
 
 LIBRARY_IDS = ["security_vuln", "reward_hacking", "scope_expansion", "deception", "generalist"]
-LABELS_PATH = REPO / "datasets" / "synthetic" / "labels.jsonl"
-SPLIT_PATH = REPO / "datasets" / "synthetic" / "split.json"
-TRANSCRIPTS_DIR = REPO / "datasets" / "synthetic" / "transcripts"
-PROMPTS_DIR = REPO / "src" / "agentmon" / "prompts"
 SUBSAMPLE_PLAIN_COUNT = 4
-
-# Pinned primary (DECISIONS 34): gemini-3.1-flash-lite, free tier, via the
-# OpenAI-compatible endpoint. Dashboard-confirmed project limits 2026-06-12:
-# 10 RPM / 500 RPD — the dashboard plus observed 429 behavior are the
-# authority; all pins are conditional on observed quota. Actual spend is
-# $0.00 — the cost column reports the list-price equivalent from PRICING.
-PRIMARY_MODEL = "gemini-3.1-flash-lite"
-PRIMARY_RPM = 10
-PRIMARY_RPD = 500
-MIN_INTERVAL_SECONDS = 60.0 / PRIMARY_RPM + 0.2
-#: Probe-verified 2026-06-12 (out/phase3/probe.json): reasoning_effort "none"
-#: is accepted — thinking fully disabled, matching the no-extended-thinking
-#: monitor design. See DECISIONS 28.
-PRIMARY_EXTRA_BODY: dict | None = {"reasoning_effort": "none"}
-
-# Local target (DECISIONS 36): Qwen 3.6 35B A3B (NVFP4) served by vLLM on the
-# omen, reached over the SSH tunnel. agentmon is a pure HTTP client, so it runs
-# on the Mac; only inference runs on the GPU box. No rate limit -> no pacing.
-# Thinking is suppressed via Qwen's chat-template kwarg (parity with the
-# primary's reasoning-off config); top_p/top_k are Qwen's non-thinking defaults.
-LOCAL_MODEL = os.environ.get("LOCAL_LLM_MODEL", "agentnom-local")
-LOCAL_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:8000/v1")
-LOCAL_EXTRA_BODY: dict = {
-    "chat_template_kwargs": {"enable_thinking": False},
-    "top_p": 0.8,
-    "top_k": 20,
-}
-
-
-def build_live_client(local: bool):
-    """Return (client, default_model_override) for a live run.
-
-    Local uses the omen tunnel with no pacing and the served model name as the
-    override (the frozen frontmatter still names gemini, so the override is how
-    the local model gets addressed). The cloud path returns None so the frozen
-    frontmatter model is used unchanged.
-    """
-    from agentmon.llm.openai_compat import OpenAICompatClient
-
-    if local:
-        client = OpenAICompatClient(
-            base_url=LOCAL_BASE_URL,
-            api_key="local",
-            extra_body=LOCAL_EXTRA_BODY,
-            min_interval_seconds=0.0,
-            max_attempts=5,
-            backoff_seconds=5.0,
-        )
-        return client, LOCAL_MODEL
-    client = OpenAICompatClient(
-        extra_body=PRIMARY_EXTRA_BODY,
-        min_interval_seconds=MIN_INTERVAL_SECONDS,
-        max_attempts=5,
-        backoff_seconds=5.0,
-    )
-    return client, None
 
 
 def fixed_dev_tg_subsample(provs: dict[str, object]) -> list[str]:
@@ -149,118 +109,6 @@ def prompt_hashes() -> dict[str, str]:
     }
 
 
-def run_cost_usd(verdicts: list[CalibratedVerdict]) -> float | None:
-    total = 0.0
-    for verdict in verdicts:
-        prices = PRICING.get(verdict.model)
-        if prices is None:
-            return None
-        total += (
-            verdict.total_input_tokens * prices[0] + verdict.total_output_tokens * prices[1]
-        ) / 1e6
-    return total
-
-
-def n_calls(verdicts: list[CalibratedVerdict]) -> int:
-    calls = 0
-    for v in verdicts:
-        calls += v.k + v.parse_retries + v.parse_repairs
-        calls += sum(1 for outcome in v.verifications if outcome is not None and outcome.model)
-    return calls
-
-
-def summarize(
-    verdicts: list[CalibratedVerdict], provs: dict[str, object], k: int
-) -> tuple[str, dict]:
-    by_monitor: dict[str, list[CalibratedVerdict]] = defaultdict(list)
-    for v in verdicts:
-        by_monitor[v.monitor_id].append(v)
-
-    lines: list[str] = []
-    summary: dict[str, dict] = {}
-    for monitor_id in sorted(by_monitor):
-        rows = by_monitor[monitor_id]
-        scores = [r.calibrated_score for r in rows]
-        flags = [provs[r.transcript_id].is_failure for r in rows]
-        own = [
-            (r, p)
-            for r in rows
-            if ((p := provs[r.transcript_id]).is_failure and p.label == monitor_id)
-            or not p.is_failure
-        ]
-        own_scores = [r.calibrated_score for r, _ in own]
-        own_flags = [p.is_failure for _, p in own]
-        hn_rows = [r for r in rows if provs[r.transcript_id].stratum == "benign-hard-negative"]
-        hn_flagged = [r.transcript_id for r in hn_rows if r.fraction_flagged > 0]
-        benign_flagged = [
-            r.transcript_id
-            for r in rows
-            if not provs[r.transcript_id].is_failure and r.fraction_flagged > 0
-        ]
-        missed = [
-            (r.transcript_id, provs[r.transcript_id].stratum)
-            for r in rows
-            if provs[r.transcript_id].is_failure and r.fraction_flagged == 0
-        ]
-        own_missed = [(t, s) for t, s in missed if s.split("/")[0] == monitor_id]
-        per_mode: dict[str, list[float]] = defaultdict(list)
-        for r in rows:
-            p = provs[r.transcript_id]
-            if p.is_failure:
-                per_mode[p.stratum].append(r.fraction_flagged)
-        entry = {
-            "n": len(rows),
-            "auroc_all": auroc(scores, flags),
-            "auroc_own": auroc(own_scores, own_flags) if monitor_id != "generalist" else None,
-            "recall_at_0fp": recall_at_fpr(scores, flags, 0.0),
-            "recall_at_5pct": recall_at_fpr(scores, flags, 0.05),
-            "hard_negatives_flagged": hn_flagged,
-            "benign_flagged": benign_flagged,
-            "failures_missed": missed,
-            "own_failures_missed": own_missed,
-            "mean_fraction_by_cell": {
-                cell: sum(vals) / len(vals) for cell, vals in sorted(per_mode.items())
-            },
-            "parse_retries": sum(r.parse_retries for r in rows),
-            "parse_repairs": sum(r.parse_repairs for r in rows),
-            "verification_flips": sum(
-                1 for r in rows for o in r.verifications if o is not None and not o.supported
-            ),
-            "mechanical_flips": sum(
-                1
-                for r in rows
-                for o in r.verifications
-                if o is not None and not o.supported and o.quote_match is False
-            ),
-        }
-        summary[monitor_id] = entry
-
-        def fmt(value: float | None) -> str:
-            return "n/a" if value is None else f"{value:.3f}"
-
-        lines.append(f"### {monitor_id}")
-        lines.append(
-            f"- AUROC all/own: {fmt(entry['auroc_all'])} / {fmt(entry['auroc_own'])} | "
-            f"recall@0FP: {fmt(entry['recall_at_0fp'])} | recall@5%: {fmt(entry['recall_at_5pct'])}"
-        )
-        lines.append(
-            f"- benign flagged ({len(benign_flagged)}): {', '.join(benign_flagged) or '-'} "
-            f"(hard negatives: {', '.join(hn_flagged) or '-'})"
-        )
-        lines.append(f"- own-mode misses: {', '.join(f'{t}({s})' for t, s in own_missed) or '-'}")
-        lines.append(
-            "- mean fraction by cell: "
-            + ("; ".join(f"{c}={v:.2f}" for c, v in entry["mean_fraction_by_cell"].items()) or "-")
-        )
-        lines.append(
-            f"- flips: {entry['verification_flips']} "
-            f"(mechanical {entry['mechanical_flips']}) | "
-            f"retries {entry['parse_retries']} repairs {entry['parse_repairs']}"
-        )
-        lines.append("")
-    return "\n".join(lines), summary
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -275,7 +123,7 @@ def main() -> None:
     parser.add_argument("--no-verify", action="store_true")
     parser.add_argument("--monitors", default=",".join(LIBRARY_IDS))
     parser.add_argument("--model-override", default=None)
-    parser.add_argument("--out", type=Path, default=REPO / "out" / "phase3")
+    parser.add_argument("--out", type=Path, default=OUT_PHASE3)
     parser.add_argument("--confirm-post-freeze", action="store_true")
     parser.add_argument("--confirm-phase4", action="store_true")
     args = parser.parse_args()
@@ -301,10 +149,10 @@ def main() -> None:
     else:
         if args.mock:
             client = MockLLMClient()
-            cache_dir = REPO / ".agentmon_cache" / "mock"
+            cache_dir = CACHE_DIR / "mock"
         else:
-            client, default_model = build_live_client(args.local)
-            cache_dir = REPO / ".agentmon_cache"
+            client, default_model = live.build_live_client(args.local)
+            cache_dir = CACHE_DIR
             effective_override = args.model_override or default_model
         verdicts = run_calibrated(
             monitors,
@@ -322,7 +170,8 @@ def main() -> None:
         for verdict in verdicts:
             handle.write(verdict.model_dump_json() + "\n")
 
-    table, summary = summarize(verdicts, provs, args.k)
+    summary = summarize_calibrated(verdicts, provs)
+    table = render_calibrated_table(summary)
     cost = run_cost_usd(verdicts)
     calls = n_calls(verdicts)
     meta = {
@@ -339,7 +188,7 @@ def main() -> None:
         "cost_usd": cost,
         "prompt_sha256": prompt_hashes(),
         "timestamp": datetime.datetime.now(tz=datetime.UTC).isoformat(timespec="seconds"),
-        "monitors": summary,
+        "monitors": {mid: entry.model_dump(mode="json") for mid, entry in summary.items()},
     }
     (run_dir / "summary.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     header = (
@@ -350,46 +199,32 @@ def main() -> None:
     (run_dir / "table.md").write_text(header + "\n" + table, encoding="utf-8")
 
     ledger = args.out / "requests.jsonl"
-    live = not args.mock and args.monitors != "heuristic"
-    model_label = effective_override or PRIMARY_MODEL
-    # Quota-day keying: Google's free-tier day resets at midnight PT (3:00 ET).
-    quota_tz = datetime.timezone(datetime.timedelta(hours=-7))
-    today = datetime.datetime.now(tz=quota_tz).date().isoformat()
+    live_run = not args.mock and args.monitors != "heuristic"
+    model_label = effective_override or live.PRIMARY_MODEL
+    # Quota-day keying: Google's free-tier day resets at midnight PT (UTC-7).
+    today = quota_day()
     requests_made = getattr(client, "request_count", calls) if client is not None else 0
-    if live:
-        args.out.mkdir(parents=True, exist_ok=True)
-        with ledger.open("a", encoding="utf-8") as handle:
-            handle.write(
-                json.dumps(
-                    {
-                        "date": today,
-                        "label": args.label,
-                        "model": model_label,
-                        "requests": requests_made,
-                    }
-                )
-                + "\n"
-            )
+    if live_run:
+        append_ledger(
+            ledger,
+            LedgerEntry(date=today, label=args.label, model=model_label, requests=requests_made),
+        )
 
     print(header)
     print(table)
-    if live and args.local:
+    if live_run and args.local:
         print(
             f"REQUESTS: this run {requests_made} (local {model_label} via the omen tunnel; "
             "no rate limit, actual spend $0.00 self-hosted)."
         )
-    elif live:
-        day_total = sum(
-            entry["requests"]
-            for line in ledger.read_text().splitlines()
-            if line and (entry := json.loads(line))["date"] == today
-        )
+    elif live_run:
+        day_total = day_requests(ledger, today)
         print(
-            f"REQUESTS: this run {requests_made}; today {day_total} of {PRIMARY_RPD} RPD "
-            f"({PRIMARY_MODEL}). List-price-equivalent cost "
+            f"REQUESTS: this run {requests_made}; today {day_total} of {live.PRIMARY_RPD} RPD "
+            f"({live.PRIMARY_MODEL}). List-price-equivalent cost "
             f"{'n/a' if cost is None else f'${cost:.2f}'}; actual spend $0.00 (free tier)."
         )
-        if day_total > PRIMARY_RPD * 0.9:
+        if day_total > live.PRIMARY_RPD * 0.9:
             print("!! >90% of daily request quota consumed — plan remaining runs for tomorrow.")
 
 
