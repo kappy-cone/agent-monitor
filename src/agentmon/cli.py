@@ -10,7 +10,8 @@ from pydantic import BaseModel, ValidationError
 
 from agentmon.calibration import run_calibrated
 from agentmon.eval.metrics import evaluate
-from agentmon.eval.report import write_report
+from agentmon.eval.report import write_html_report, write_report
+from agentmon.eval.workspace import LABELS_PATH
 from agentmon.ingest.claude_code import ingest_path, parse_session_file
 from agentmon.llm.client import AnthropicClient, LLMClient
 from agentmon.llm.mock import MockLLMClient
@@ -208,6 +209,29 @@ def run(
             for verdict in verdicts:
                 handle.write(verdict.model_dump_json() + "\n")
         typer.echo(f"Appended {len(verdicts)} verdict(s) to {out}")
+
+
+@app.command()
+def report(
+    run_dir: Annotated[
+        Path,
+        typer.Argument(help="Run directory containing summary.json and verdicts.jsonl."),
+    ],
+    labels: Annotated[
+        Path,
+        typer.Option(help="Ground-truth labels JSONL, one LabeledTranscript per line."),
+    ] = LABELS_PATH,
+    out: Annotated[
+        Path | None,
+        typer.Option(help="Output HTML path (default: <run_dir>/report.html)."),
+    ] = None,
+) -> None:
+    """Render one eval run as a self-contained HTML error-analysis dashboard."""
+    try:
+        out_path = write_html_report(run_dir, labels, out)
+    except (FileNotFoundError, ValueError) as exc:
+        raise typer.BadParameter(str(exc), param_hint="run_dir") from exc
+    typer.echo(f"Wrote {out_path}")
 
 
 @app.command(name="eval")
