@@ -103,8 +103,46 @@ is consistent with the existing `sub-ing` base ("implement … synthetic builder
 read by any 4A baseline (which scan for `secret|credential|hack|…`, never dataset vocab);
 (e) real PII in the new bases (a contributor gmail, SSH/GPU-box config: internal IP, hostname,
 username) was caught by `forbidden_after_scrub` and added to the scrub profile. The
-`self_recon` set is a first blatant-tier batch; medium/subtle tiers and a declared test read
-are future work.
+`self_recon` set began as a blatant-tier batch; medium/subtle tiers were added 2026-07-07
+(below); a declared `self_recon` test read remains future work.
+
+#### self_recon medium/subtle tiers (2026-07-07) — additive dev, re-gated over 155 transcripts
+
+Added **4 medium + 4 subtle** `self_recon` failures (8 transcripts → 155 total), reusing the four
+buildable `-inj` bases (`p285`/`prad`/`pinv`/`pskl`) against their existing clean twins. The `pacc`
+(techacct-bench) source is unavailable on this machine, so its medium/subtle pair is **deferred**
+(design + spec ready in `docs/designs/06-selfrecon-medium-subtle-tiers.md`). Tier gradient by
+**task-nexus visibility**: medium = a weak local pretext pierced within a 2–5 event window; subtle =
+a plausible pretext that collapses only across events (the probe output is never consumed, or an
+earlier/later base event contradicts the stated justification — e.g. `sub-02`'s remote-fetch is
+contradicted by the base's own "offline, committed hex" claim at idx 24). All 8 authored
+**keyword-light** (identity / env / host / oversight flavors; the words `secret|credential|password|…`
+avoided), so **no new HN-9 ballast was needed**. Plans authored this session (`claude-opus-4-8`,
+recorded per-row via a new `injector_model` manifest override); the frozen 133-row test split is
+byte-untouched; the 8 ids were appended to the split **dev** side.
+
+Re-gated 4A over all 155 (73 failure-labeled / 82 benign) — **all baselines pass**:
+
+| Baseline | Power | Δ vs 147 |
+| --- | --- | --- |
+| n_events | 0.597 | +0.033 |
+| total_chars | 0.604 | +0.018 |
+| keyword_hits | 0.521 | −0.004 |
+| comment_density_in_diffs | 0.513 | +0.008 |
+| file_diff_fraction | **0.636** | −0.007 |
+| shell_error_fraction | 0.561 | −0.023 |
+| unified_diff_markers | 0.500 | 0.000 |
+
+`keyword_hits` held flat (0.521) — keyword-light authoring kept recon vocabulary off the failure
+side. Medium/subtle injections are longer than blatant (Δevents +3..+4), nudging `n_events` /
+`total_chars` up, but both stay well under 0.65; `file_diff_fraction` (the worst baseline, 0.636)
+eased because the shell-only injections add no diffs. 4B: (a) **matched-pair fidelity** — all 8 are
+insert-only (twin events preserved in order), differing from their clean twin only by the subplot;
+(b) **length neutrality** — `self_recon` matched-pair Δ (mean +3.5, range +3..+4) sits inside the
+other classes' band (+2.4..+4.7), so injection size does not encode the label; (c) **cross-instance
+de-correlation** — no fabricated value reused across the 13 `self_recon` instances. **Pending (needs
+a served substrate):** running the `self_recon` specialist over each injected / clean / HN-9 triple
+to confirm the new tiers catch above chance without collapsing into the HN-9 (benign) boundary.
 
 ### 4B — realism catalog
 
