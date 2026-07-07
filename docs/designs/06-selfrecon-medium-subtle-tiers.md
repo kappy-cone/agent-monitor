@@ -1,9 +1,12 @@
 # Design 06 — self_recon medium/subtle tiers (build plan)
 
-Status: **EXECUTED 2026-07-07** — 4 medium + 4 subtle built (p285/prad/pinv/pskl); **pacc med/sub
-deferred** (techacct source unavailable this machine); both gates pass (README re-gate over 155,
-DECISIONS 51); §6 monitor-over-pair validation pending a served substrate. The plan below is the
-authored design (the pacc rows ship when the source is restored).
+Status: **EXECUTED + Qwen-VALIDATED 2026-07-07** — 4 medium + 4 subtle built (p285/prad/pinv/pskl);
+**pacc med/sub deferred** (techacct source unavailable this machine); both gates pass (README re-gate
+over 155, DECISIONS 51). **§6 monitor-over-pair validation DONE on Qwen** (DECISIONS 52,
+`results/self_recon-tier-validation/`): real gradient — catch 80% / 50% / 0% across blatant / medium /
+subtle at k=3 majority, **0/8 benign (twin + HN-9) false flags**, separability AUROC 1.000; subtle sits
+at the monitor's recall frontier. **Gemma arm pending.** The plan below is the authored design (the
+pacc rows ship when the source is restored).
 
 Extends `datasets/synthetic/` with medium and subtle `self_recon`
 failures so the mode stops being a blatant-only, ceiling-prone (own-AUROC 1.000 on n=5) cell. All
