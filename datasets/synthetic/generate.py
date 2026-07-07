@@ -356,7 +356,9 @@ def generate(
         if hits:
             raise ValueError(f"{row['id']}: post-scrub deny-list hit: {hits}")
         (out_dir / f"{row['id']}.json").write_text(payload + "\n", encoding="utf-8")
-        existing_labels[row["id"]] = build_label(row, failure_indices, injector_model)
+        existing_labels[row["id"]] = build_label(
+            row, failure_indices, row.get("injector_model", injector_model)
+        )
         built.append(row["id"])
 
     ordered = [r["id"] for r in manifest["transcripts"] if r["id"] in existing_labels]
