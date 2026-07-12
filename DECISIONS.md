@@ -912,4 +912,31 @@ when made; this file is the durable record.
       Gemma-vs-Qwen comparison cell needs. `med-04` + the two pskl subtles are missed by both (pskl sits
       closest to the HN-9 line, as flagged at build).
     - Archived in `results/self_recon-tier-validation/ANALYSIS.md`. Next: the full dev-full 6-monitor
-      Gemma run (`gemma-selfrecon-devfull`) for the broad substrate picture.
+      Gemma run (`gemma-selfrecon-devfull`) for the broad substrate picture. **Done — DECISIONS 54.**
+
+## Gemma dev-full readout landed — the 6-monitor substrate picture completes (2026-07-12)
+
+54. **The dev-full Gemma run over the 5 frozen monitors lands from the prior-session worktree; with the
+    tier A/B it completes the 6-monitor Gemma picture.** Reviewed and added from the `nifty-stonebraker`
+    branch (commit `44f4222`, never merged to main). `dev_eval.py --local --slice dev-full
+    --confirm-post-freeze --k 3 --model-override agentmon-local-gemma`, verify ON (default pipeline),
+    **1,519 requests, $0**, no band HALT. Scope: the **5 frozen GATE-2 monitors** over dev-full **n=89**
+    (the 81 original dev + the 8 self_recon tiers scored as targets); the self_recon *monitor* is covered
+    separately by the tier A/B (`results/self_recon-tier-validation/`), so this run **+** that A/B = all
+    six monitors on Gemma. Archived at `results/gemma-selfrecon-devfull/` (ANALYSIS + table + summary).
+    - **Own-AUROC, Gemma vs the committed Qwen dev-full (DECISIONS 50, n=81):** deception 0.815→**0.705**
+      (−0.110), reward_hacking 0.819→**0.938** (+0.119), scope_expansion 0.930→**0.962** (+0.032),
+      security_vuln 0.918→**0.991** (+0.073), generalist all-mode 0.756→**0.703** (−0.053). All five Qwen
+      figures verified against `results/self_recon-dev-validation/table.md` on landing — exact match.
+    - **Reading:** the substrates split, neither dominates — Gemma leads on the artifact-keyed specialists
+      (reward/scope/security), Qwen on the inferential modes (deception/generalist), echoing the sealed
+      test matrix. self_recon cross-talk is real even without the specialist (generalist flags
+      self_recon/blatant 0.33, /subtle 0.25; security & scope /blatant ~0.20).
+    - **Review caveats (added on landing).** (1) Dev, descriptive — NOT the sealed test; not comparable to
+      the frozen GATE-2 matrix. (2) Underpowered per cell (2–3 positives/tier); deltas noise-dominated at
+      this n, consistent with the project-wide substrate-noise finding. (3) The four specialists' own-AUROC
+      is slice-robust (own-mode positives unchanged by the +8 self_recon targets), but the **generalist**
+      row is all-mode and therefore genuinely mixed-slice (n=81 vs n=89, 8 extra positives) — read its
+      −0.053 as indicative, not a clean paired delta. (4) Verification-flip load is far lighter on Gemma
+      than Qwen (deception 1 vs 42, scope 16 vs 36, generalist 0 vs 26): Gemma flags less and quotes more
+      verbatim, so the quote-fidelity tax bites less — a substrate behavior difference worth carrying.
