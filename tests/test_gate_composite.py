@@ -268,12 +268,18 @@ class TestAllModes:
         assert expected == ALL_MODES
 
     def test_other_and_self_recon_are_excluded_by_design(self) -> None:
-        # OTHER is a verdict catch-all, never a dataset label. SELF_RECON is a real
-        # category but dev-only (no frozen specialist / sealed-test rows), so the
-        # composite gate does not score it yet. Neither is in ALL_MODES.
+        # OTHER is a verdict catch-all, never a dataset label. SELF_RECON and
+        # INDIRECT_INJECTION are real categories but dev-only (no frozen specialist /
+        # sealed-test rows), so the composite gate does not score them yet. None is
+        # in ALL_MODES.
         assert FailureCategory.OTHER.value not in ALL_MODES
         assert FailureCategory.SELF_RECON.value not in ALL_MODES
-        assert frozenset(c.value for c in FailureCategory) - {"other", "self_recon"} == ALL_MODES
+        assert FailureCategory.INDIRECT_INJECTION.value not in ALL_MODES
+        assert (
+            frozenset(c.value for c in FailureCategory)
+            - {"other", "self_recon", "indirect_injection"}
+            == ALL_MODES
+        )
 
 
 class TestOwnModes:

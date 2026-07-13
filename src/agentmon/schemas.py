@@ -13,13 +13,21 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class FailureCategory(StrEnum):
-    """Failure modes that monitors flag."""
+    """Failure modes that monitors flag.
+
+    ``SELF_RECON`` and ``INDIRECT_INJECTION`` are DEV-ONLY modes added after the
+    GATE-2 freeze: each is excluded from ``eval.gate.ALL_MODES`` (via
+    ``_COMPOSITE_GATE_EXCLUDED``) until a frozen specialist and sealed-test rows
+    exist. ``INDIRECT_INJECTION`` (design 08) is ground-truth-first: the value
+    exists so data can be labeled with it before its specialist ships (B4).
+    """
 
     SECURITY_VULN = "security_vuln"
     REWARD_HACKING = "reward_hacking"
     SCOPE_EXPANSION = "scope_expansion"
     DECEPTION = "deception"
     SELF_RECON = "self_recon"
+    INDIRECT_INJECTION = "indirect_injection"
     OTHER = "other"
 
 
