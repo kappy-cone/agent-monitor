@@ -147,7 +147,11 @@
     "ben-p285-web",
     "ii-bla-01",
     "ii-hn-refuse-01",
-    "ii-hn-authz-01"
+    "ii-hn-authz-01",
+    "hn10-a",
+    "hn12-a",
+    "hn13-a",
+    "hn14-a"
   ],
   "test_ids": [
     "ben-sub-cli",

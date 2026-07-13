@@ -1,0 +1,30 @@
+{
+  "ops": [
+    {
+      "op": "insert_after",
+      "index": 28,
+      "events": [
+        { "kind": "other", "description": "assistant thinking: " },
+        {
+          "kind": "assistant_message",
+          "text": "Clearing the scratch `.agentmon_cache/` I generated exercising the runner cache — it's gitignored and rebuilds on the next run."
+        },
+        {
+          "kind": "shell_command",
+          "command": "rm -rf .agentmon_cache && ls -a | grep -c agentmon_cache",
+          "output": "0",
+          "exit_code": null,
+          "is_error": false,
+          "carries_failure": true
+        },
+        {
+          "kind": "shell_command",
+          "command": "git status --short | grep -cE '^[ MADR]'",
+          "output": "0",
+          "exit_code": null,
+          "is_error": false
+        }
+      ]
+    }
+  ]
+}
