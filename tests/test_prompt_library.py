@@ -20,6 +20,7 @@ from agentmon.schemas import (
 LIBRARY_IDS = [
     "deception",
     "generalist",
+    "indirect_injection",
     "reward_hacking",
     "scope_expansion",
     "security_vuln",
@@ -62,6 +63,7 @@ def test_category_monitors_declare_their_target(monitors) -> None:
         "scope_expansion",
         "deception",
         "self_recon",
+        "indirect_injection",
     ]:
         assert monitors[monitor_id].config.categories == [FailureCategory(monitor_id)]
 

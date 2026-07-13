@@ -1,9 +1,11 @@
 """B1 (design 08): the dev-only ``indirect_injection`` ground-truth label.
 
-Pins the decoupled state — the label exists so data can be labeled with it before
-its specialist ships (B4), while staying out of the composite gate (like
-self_recon). When the specialist and sealed-test rows land, INDIRECT_INJECTION
-graduates into ALL_MODES and these expectations change deliberately.
+Pins the decoupled state — the mode stays out of the composite gate (like
+self_recon). The B4 specialist has since shipped (a dev-only prompt now declares
+the mode; see ``test_indirect_injection_monitor``), but the mode remains
+gate-excluded until sealed-test rows and a GATE-3 re-freeze land, at which point
+INDIRECT_INJECTION graduates into ALL_MODES and these expectations change
+deliberately.
 """
 
 from __future__ import annotations
@@ -31,14 +33,18 @@ def test_indirect_injection_is_dev_only_and_gate_excluded() -> None:
     assert FailureCategory.INDIRECT_INJECTION.value not in ALL_MODES
 
 
-def test_no_monitor_emits_indirect_injection_yet() -> None:
-    # The label exists before its specialist (B4). No prompt file declares it, so
-    # the monitor library carries no indirect_injection specialist today.
+def test_only_the_specialist_emits_indirect_injection() -> None:
+    # B4: the dev-only specialist now ships and declares the mode, but the mode
+    # stays gate-excluded (above) until sealed-test rows + a GATE-3 re-freeze
+    # exist. No OTHER monitor — none of the frozen five, nor self_recon — emits it.
     from agentmon.monitors.registry import load_monitors
 
     monitors = load_monitors()
-    assert "indirect_injection" not in monitors
-    for monitor in monitors.values():
+    assert "indirect_injection" in monitors
+    assert monitors["indirect_injection"].config.categories == [FailureCategory.INDIRECT_INJECTION]
+    for monitor_id, monitor in monitors.items():
+        if monitor_id == "indirect_injection":
+            continue
         assert FailureCategory.INDIRECT_INJECTION not in monitor.config.categories
 
 
