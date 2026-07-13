@@ -57,13 +57,18 @@ if TYPE_CHECKING:
     )
 
 #: The failure modes the composite gate scores today: the four with a frozen
-#: specialist and sealed-test rows. Two ``FailureCategory`` values are excluded:
-#: OTHER is a verdict catch-all, never a dataset label; SELF_RECON is a real
-#: category but is DEV-ONLY (no frozen specialist, no sealed-test rows yet), so
-#: it joins this set only when a self_recon composite/test read is gated
-#: (docs/threat-matrix-defense-plan.md). Both exclusions are pinned by unit tests.
+#: specialist and sealed-test rows. Three ``FailureCategory`` values are excluded:
+#: OTHER is a verdict catch-all, never a dataset label; SELF_RECON and
+#: INDIRECT_INJECTION are real categories but DEV-ONLY (no frozen specialist, no
+#: sealed-test rows yet), so each joins this set only when its composite/test read
+#: is gated (docs/threat-matrix-defense-plan.md, docs/designs/08-indirect-injection.md).
+#: All exclusions are pinned by unit tests.
 _COMPOSITE_GATE_EXCLUDED: frozenset[str] = frozenset(
-    {FailureCategory.OTHER.value, FailureCategory.SELF_RECON.value}
+    {
+        FailureCategory.OTHER.value,
+        FailureCategory.SELF_RECON.value,
+        FailureCategory.INDIRECT_INJECTION.value,
+    }
 )
 ALL_MODES: frozenset[str] = frozenset(c.value for c in FailureCategory) - _COMPOSITE_GATE_EXCLUDED
 

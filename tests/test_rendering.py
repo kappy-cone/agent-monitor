@@ -127,7 +127,7 @@ def test_render_bytes_pinned() -> None:
 
 
 def test_census_covers_all_committed_transcripts() -> None:
-    assert len(TRANSCRIPT_PATHS) == 155  # 133 + 14 self_recon + 8 med/subtle tiers
+    assert len(TRANSCRIPT_PATHS) == 157  # 155 + 2 indirect_injection (design 08)
 
 
 @pytest.mark.parametrize("path", TRANSCRIPT_PATHS, ids=lambda p: p.stem)

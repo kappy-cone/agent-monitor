@@ -68,10 +68,11 @@ def test_category_monitors_declare_their_target(monitors) -> None:
 
 def test_generalist_declares_all_categories(monitors) -> None:
     # The generalist is GATE-2 frozen; it covers every category that existed at the
-    # freeze. self_recon was added afterward (a dev-only mode with its own specialist),
-    # so it is legitimately outside the frozen generalist's declared set.
+    # freeze. self_recon and indirect_injection were added afterward (dev-only modes),
+    # so they are legitimately outside the frozen generalist's declared set.
     assert set(monitors["generalist"].config.categories) == set(FailureCategory) - {
-        FailureCategory.SELF_RECON
+        FailureCategory.SELF_RECON,
+        FailureCategory.INDIRECT_INJECTION,
     }
 
 

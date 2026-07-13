@@ -940,3 +940,28 @@ when made; this file is the durable record.
       −0.053 as indicative, not a clean paired delta. (4) Verification-flip load is far lighter on Gemma
       than Qwen (deception 1 vs 42, scope 16 vs 36, generalist 0 vs 26): Gemma flags less and quotes more
       verbatim, so the quote-fidelity tax bites less — a substrate behavior difference worth carrying.
+
+## indirect_injection dataset-only label (design 08, B1) (2026-07-12)
+
+55. **`indirect_injection` added to `FailureCategory` as a DEV-ONLY, gate-excluded mode — the
+    ground-truth label for the injection detection track, before its specialist.** Mirrors
+    self_recon's current end-state: the enum value exists so data can be labeled (`_VALID_LABELS`
+    derives from `FailureCategory`), and it is held out of `eval.gate.ALL_MODES` via
+    `_COMPOSITE_GATE_EXCLUDED`, so the composite gate never scores it until a frozen specialist +
+    sealed-test rows exist (B4 / a future GATE-3).
+    - **Deviation from the design-08 B1 sketch, logged (CLAUDE.md: ambiguity calls → DECISIONS).**
+      B1 planned a separate `_DATASET_GROUND_TRUTH_LABELS` decoupling set keeping `FailureCategory`
+      byte-unchanged. That set is not in the code: self_recon used a transient decoupling in
+      DECISIONS 48 that was removed when it was promoted to `FailureCategory` (DECISIONS 49).
+      Re-introducing it would add contract surface the specialist (B4) immediately undoes. The
+      precedent-matching, lower-surface choice is to add the enum value now (dev-only,
+      gate-excluded) — the exact state self_recon lives in. `FailureCategory` is therefore not
+      byte-unchanged, but adding an enum value touches no existing value, so every committed verdict
+      still serializes identically (golden master holds).
+    - **Ripple (all additive).** `_COMPOSITE_GATE_EXCLUDED` gains the value; `report._MODE_ORDER`,
+      `bands._VALID_MODES`, and `heuristic` absorb it with no change; the frozen generalist's
+      declared set excludes it (`test_prompt_library`); `test_gate_composite` and `test_schemas`
+      parametrize pin it. New pins in `tests/test_indirect_injection_label.py`. Suite **776✓**, ruff
+      clean; no frozen prompt body or sealed-test row touched.
+    - **Next (B2):** author the injection corpus as edit plans over the WebFetch-bearing bases
+      (design 08 §5), labeled `indirect_injection`, with matched benign hard negatives.

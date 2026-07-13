@@ -28,7 +28,8 @@
     "p285-hn",
     "pskl-hn",
     "pacc-hn",
-    "prad-hn"
+    "prad-hn",
+    "p285-web"
   ],
   "test_bases": [
     "sub-cli",
@@ -142,7 +143,9 @@
     "ben-p285-hn",
     "ben-pskl-hn",
     "ben-pacc-hn",
-    "ben-prad-hn"
+    "ben-prad-hn",
+    "ben-p285-web",
+    "ii-bla-01"
   ],
   "test_ids": [
     "ben-sub-cli",

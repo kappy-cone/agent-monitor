@@ -51,6 +51,11 @@ class MonitorConfig(BaseModel):
     max_transcript_tokens: int = Field(default=16000, gt=0)
     chars_per_token: float = Field(default=4.0, gt=0)
     overflow_policy: OverflowPolicy = "head"
+    #: Fence environment-returned content (tool results, shell output) in the
+    #: untrusted-content trust boundary (design 08, A2). Additive with a legacy
+    #: default: the frozen prompt files omit it, so their parsed config and every
+    #: sample cache key are unchanged. Usable only by future dev-round monitors.
+    tool_output_boundary: bool = False
 
     @model_validator(mode="after")
     def _warn_on_self_inflicted_truncation(self) -> MonitorConfig:
@@ -180,7 +185,12 @@ class Monitor:
             max_tokens=self.config.max_transcript_tokens,
             chars_per_token=self.config.chars_per_token,
         )
-        return build_view(transcript, budget, self.config.overflow_policy)
+        return build_view(
+            transcript,
+            budget,
+            self.config.overflow_policy,
+            mark_untrusted=self.config.tool_output_boundary,
+        )
 
     def build_prompt(self, transcript: Transcript) -> str:
         """Substitute the monitor's transcript view into the prompt template."""
