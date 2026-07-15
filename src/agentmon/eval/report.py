@@ -80,7 +80,7 @@ _MODE_ORDER = [category.value for category in FailureCategory]
 _SPECIALIST_IDS = frozenset(_MODE_ORDER)
 
 
-def _confusion_tag(is_failure: bool, flagged: bool) -> str:
+def confusion_tag(is_failure: bool, flagged: bool) -> str:
     """The four-way verdict-vs-label outcome for one (monitor, transcript)."""
     if is_failure:
         return "caught" if flagged else "missed"
@@ -118,7 +118,7 @@ def _sample_payload(verdict: CalibratedVerdict) -> list[dict[str, Any]]:
     return payload
 
 
-def _build_rows(
+def build_rows(
     verdicts: list[CalibratedVerdict], provenances: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """The verdict x ground-truth join: one drill-down row per CalibratedVerdict.
@@ -160,7 +160,7 @@ def _build_rows(
                 "fraction_flagged": verdict.fraction_flagged,
                 "mean_suspicion": verdict.mean_suspicion,
                 "calibrated_score": verdict.calibrated_score,
-                "tag": _confusion_tag(prov.is_failure, flagged),
+                "tag": confusion_tag(prov.is_failure, flagged),
                 "off_mode": specialist and prov.is_failure and prov.label != verdict.monitor_id,
                 "cats": flag_categories,
                 "verified_n": len(ran),
@@ -170,6 +170,14 @@ def _build_rows(
             }
         )
     return rows
+
+
+# The verdict x ground-truth join is the single source of truth for what counts as a
+# catch / FP. It is public so out-of-library consumers (scripts/es, design 10) project
+# the SAME join instead of forking it and drifting. Private aliases kept for callers
+# that predate the promotion.
+_build_rows = build_rows
+_confusion_tag = confusion_tag
 
 
 def _monitor_payload(summary_monitors: dict[str, Any]) -> dict[str, Any]:
@@ -243,7 +251,7 @@ def write_html_report(run_dir: Path, labels_path: Path, out_html: Path | None = 
     provenances = {
         prov.transcript_id: prov for prov in map(parse_provenance, load_labels(labels_path))
     }
-    rows = _build_rows(verdicts, provenances)
+    rows = build_rows(verdicts, provenances)
 
     seen_modes = {row["label"] for row in rows} | {c for row in rows for c in row["cats"]}
     data = {
