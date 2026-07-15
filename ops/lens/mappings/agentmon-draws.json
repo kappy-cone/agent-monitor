@@ -1,0 +1,153 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "codec": "best_compression",
+      "mapping": { "total_fields": { "limit": 200 } }
+    },
+    "analysis": {
+      "analyzer": {
+        "am_text": { "tokenizer": "standard", "filter": ["lowercase", "asciifolding"] },
+        "url_aware": { "tokenizer": "uax_url_email", "filter": ["lowercase"] }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "_meta": {
+      "source_of_truth": "committed artifacts under results/ and out/. This index is DERIVED and DISPOSABLE — delete it freely; scripts/es/export.py rebuilds it in seconds.",
+      "design": "docs/designs/10-es-lens.md",
+      "export_version": 1,
+      "ecs": "partial by design",
+      "ecs_omitted": [
+        "event.category",
+        "event.type",
+        "host.*",
+        "user.*",
+        "source.*",
+        "destination.*",
+        "network.*",
+        "process.*",
+        "threat.*",
+        "labels.*"
+      ],
+      "ecs_omitted_why": "event.category is a closed vocabulary with no honest member for FailureCategory. host/user/source/network/process/threat describe data that does not exist: monitors judge transcripts, not hosts. Populating them to fill a SIEM UI would optimize a dashboard's appearance against a proxy for the real signal - the reward_hacking failure mode this repo exists to detect. labels.* collides with 'label' meaning ground truth here.",
+      "grain_footgun": "One doc per DRAW (k per verdict). The decision grain is agentmon.draw.sample_index:0. Counting FPs without that filter returns k-times too many.",
+      "time": "agentmon.time.provenance/precision/trusted record how @timestamp was obtained. Within a run, time is DEGENERATE (all draws share one instant): the run is the temporal event. No panel may imply intra-run time evolution."
+    },
+    "properties": {
+      "@timestamp": { "type": "date" },
+      "ecs": { "properties": { "version": { "type": "keyword" } } },
+      "event": {
+        "properties": {
+          "kind": { "type": "keyword" },
+          "module": { "type": "keyword" },
+          "dataset": { "type": "keyword" },
+          "severity": { "type": "long" },
+          "risk_score": { "type": "float" },
+          "outcome": { "type": "keyword" },
+          "duration": { "type": "long" }
+        }
+      },
+      "rule": {
+        "properties": {
+          "id": { "type": "keyword" },
+          "name": { "type": "keyword" },
+          "ruleset": { "type": "keyword" }
+        }
+      },
+      "agentmon": {
+        "properties": {
+          "time": {
+            "properties": {
+              "provenance": { "type": "keyword" },
+              "precision": { "type": "keyword" },
+              "trusted": { "type": "boolean" },
+              "source_field": { "type": "keyword" }
+            }
+          },
+          "run": {
+            "properties": {
+              "key": { "type": "keyword" },
+              "committed": { "type": "boolean" },
+              "slice": { "type": "keyword" },
+              "k": { "type": "short" },
+              "temperature": { "type": "float" },
+              "verify": { "type": "boolean" }
+            }
+          },
+          "substrate": {
+            "properties": {
+              "family": { "type": "keyword" },
+              "served_alias": { "type": "keyword" },
+              "model_id": { "type": "keyword" },
+              "quant": { "type": "keyword" },
+              "hosting": { "type": "keyword" }
+            }
+          },
+          "transcript": {
+            "properties": {
+              "id": { "type": "keyword" },
+              "source": { "type": "keyword" }
+            }
+          },
+          "draw": {
+            "properties": {
+              "sample_index": { "type": "short" },
+              "suspicion_score": { "type": "short" },
+              "categories": { "type": "keyword" },
+              "flagged": { "type": "boolean" },
+              "reasoning": {
+                "type": "text",
+                "analyzer": "am_text",
+                "fields": { "uax": { "type": "text", "analyzer": "url_aware" } }
+              },
+              "evidence_indices": { "type": "integer" },
+              "evidence_quotes": {
+                "type": "text",
+                "analyzer": "am_text",
+                "fields": { "uax": { "type": "text", "analyzer": "url_aware" } }
+              },
+              "input_tokens": { "type": "integer" },
+              "output_tokens": { "type": "integer" },
+              "latency_ms": { "type": "float" },
+              "parse_error": { "type": "keyword" },
+              "verification": {
+                "properties": {
+                  "supported": { "type": "boolean" },
+                  "quote_match": { "type": "boolean" },
+                  "reasoning": { "type": "text", "analyzer": "am_text" }
+                }
+              }
+            }
+          },
+          "verdict": {
+            "properties": {
+              "flagged": { "type": "boolean" },
+              "fraction_flagged": { "type": "float" },
+              "calibrated_score": { "type": "float" },
+              "mean_suspicion": { "type": "float" },
+              "flips": { "type": "integer" },
+              "mech_flips": { "type": "integer" }
+            }
+          },
+          "eval": {
+            "properties": {
+              "label": { "type": "keyword" },
+              "is_failure": { "type": "boolean" },
+              "stratum": { "type": "keyword" },
+              "tier": { "type": "keyword" },
+              "base": { "type": "keyword" },
+              "hn_pattern": { "type": "keyword" },
+              "pair_with": { "type": "keyword" },
+              "failure_event_indices": { "type": "integer" },
+              "tag": { "type": "keyword" },
+              "off_mode": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,60 @@
+# Substrate resolution for the ES lens (design 10).
+#
+# WHY THIS FILE EXISTS: the analyst dimension "which model judged this?" is NOT
+# recoverable from the artifacts. The measured trap:
+#
+#   `agentnom-local` IS Qwen. It is a typo of "agentmon" frozen into the vLLM
+#   served-model-name and thence into 1,463 draws and every cache key. The string
+#   "qwen" appears NOWHERE in the data — the identity exists only as prose in
+#   results/gemma-qwen-test-matrix/ANALYSIS.md:9. A naive `model:*qwen*` in Kibana
+#   returns ZERO rows, silently, and a "Qwen vs Gemma" panel built on it is a wrong
+#   answer rather than a missing one.
+#
+# So: the raw `model` string is indexed VERBATIM (typo and all — fixing it would
+# change cache keys), and this committed map supplies the derived
+# `agentmon.substrate.*` dimension. The exporter FAILS CLOSED on an unmapped model:
+# a silent `unknown` bucket in a substrate comparison is worse than a crash.
+#
+# Do NOT infer substrate from paths: out/phase4/runs/test-* is Qwen with no "qwen"
+# anywhere in its path.
+
+models:
+  agentnom-local:
+    family: qwen
+    model_id: Qwen/Qwen3-8B          # served via vLLM on the GPU box over an SSH tunnel
+    quant: none
+    hosting: self_hosted
+    note: >-
+      Typo of "agentmon" frozen into the served-model-name. This is Qwen, not a
+      distinct substrate. Identity documented in gemma-qwen-test-matrix/ANALYSIS.md:9.
+
+  agentmon-local-gemma:
+    family: gemma
+    model_id: google/gemma-3-12b-it
+    quant: none
+    hosting: self_hosted
+
+  gemini-3.1-flash-lite:
+    family: gemini
+    model_id: gemini-3.1-flash-lite
+    quant: none
+    hosting: api
+
+  gemini-3.5-flash:
+    family: gemini
+    model_id: gemini-3.5-flash
+    quant: none
+    hosting: api
+
+  claude-haiku-4-5:
+    family: claude
+    model_id: claude-haiku-4-5
+    quant: none
+    hosting: api
+
+  heuristic:
+    family: heuristic
+    model_id: none
+    quant: none
+    hosting: local
+    note: The deterministic non-LLM baseline (agentmon.heuristic), not a served model.
