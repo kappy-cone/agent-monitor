@@ -35,6 +35,12 @@ Two provenance caveats worth carrying:
 - The ATT&CK run's 14 tactic analyses were produced on Opus 4.8; TA0003/TA0008 and all downstream
   stages ran on Sonnet (a workaround for an Opus cybersecurity safety filter that deadlocked the
   original run).
+- **The baseline every analysis was given is already one commit stale.** All four sweeps were told
+  `indirect_injection` was "ground-truth-only, no specialist prompt exists yet, B4 pending". B4
+  shipped on 2026-07-13 (`8cfce35`): `prompts/indirect_injection.md` is live, dev-only,
+  gate-excluded. Corrected inline where it changes a conclusion (C2's timing). Read every "not
+  built" claim in this document against `git log`, not against its own baseline — the repo moves
+  faster than a gap analysis of it.
 
 ## Bottom line
 
@@ -81,29 +87,81 @@ via `build_view(t, RenderBudget(max_tokens=16000, chars_per_token=4.0), "head")`
 
 **Two results invert what this document previously said.**
 
-**1. `bracket` is a no-op on this corpus — do not route Phase 0 at it.** Whole-transcript overflow
-is **0/163** at the frozen budget, so `overflow_policy` cannot change a single rendered byte here.
-An earlier draft of this section framed the diagnostic as "the evidence a bracket re-gate decision
-needs" — that was wrong. A bracket re-gate would buy nothing while costing a declared re-gate of
-five frozen files. Design 05's bracket-vs-head result (head loses evidence in 9/9 overflowing
-transcripts at an 8,192-token budget; bracket 0/94) is real but conditional on overflow *firing*,
-which it does not at 16,000 tokens. The **per-event 2000-char cap is the entire live mechanism**,
-and bracket does not touch it. The only lever with measured headroom is a per-event fix: split long
-events across the budget, or raise/soften the cap.
+**1. `bracket` is a no-op — because the substrate has headroom, not by accident.**
+Whole-transcript overflow is **0/163** at the frozen budget, so `overflow_policy` cannot change a
+single rendered byte. The reason matters: the primary substrates (Qwen-3.6-35B, Gemma-4-31B) are
+served at **`max_model_len 32768`** (DECISIONS 41), and the shipped 64,000-char render is only
+**~21,333 server tokens** at the calibrated 3.0 chars/token ratio — it fits with ~11k tokens spare.
+Design 05's bracket-vs-head result (head loses evidence in 9/9 overflowing transcripts at an
+8,192-token budget; bracket 0/94) is real but conditional on overflow *firing*, which now requires
+tightening the budget *below what the substrate needs*: measured, at the calibrated 3.0 ratio
+(48,000 chars) overflow fires for 3/163 — but you would never render that tight given a 32k context.
+A bracket re-gate would buy nothing while costing a declared re-gate of five frozen files. The
+**per-event 2000-char cap is the entire live mechanism**, and no budget or policy touches it.
+
+*(Six prompts declare `model: gemini-3.1-flash-lite` in frontmatter — a placeholder from the Phase-3
+dev-iteration era. The primary substrate is the served local Qwen/Gemma pair, pinned at the runner
+level; the render budget, not the declared model, is what governs.)*
+
+**1b. CORRECTED — the cap and the policy are one decision, not two.** An earlier revision of this
+section swept candidate caps with per-event byte arithmetic and concluded "every candidate fits,
+raise it to 6000". That sweep ignored the whole-transcript budget and was wrong in the most
+dangerous direction. Re-rendered through the real `build_view` at the frozen 64,000-char budget
+(`scripts/truncation_census.py`):
+
+| cap | policy | capped events | overflowing | **gt evidence dropped** | max prompt | fits 32k? |
+|---|---|---|---|---|---|---|
+| **2,000 (current)** | head | 1,009 | 0 | **0** | 18,331 tok | yes |
+| 6,000 | head | 10 | 12 | **8** | 21,332 tok | yes |
+| **6,000** | **bracket** | **12** | 12 | **0** | 20,988 tok | yes |
+| none | head | 0 | 12 | **8** | 21,332 tok | yes |
+| none | bracket | 0 | 12 | **0** | 21,316 tok | yes |
+
+A bigger per-event cap creates no capacity — it consumes the transcript budget faster. Twelve
+transcripts then overflow, `head` drops whole events from the **tail**, and that is exactly where
+ground truth lives (design 05: median failure position 0.85). **Raising the cap alone destroys
+ground-truth evidence in 8 transcripts** — trading partial truncation of one event for total
+deletion of late events. Strictly worse than doing nothing.
+
+So **a cap raise requires `overflow_policy="bracket"`**, which keeps head and tail, elides the
+middle, and takes gt-dropped back to 0. This inverts §1 above at any cap above 2,000: bracket is a
+no-op *at the current cap* and **mandatory above it**. The doc previously carried both "raise the
+cap" and "do not deploy bracket" as independent recommendations; they are one coupled decision.
+
+Honest residual: bracket elides the **middle** of the 12 overflowing transcripts. Ground truth
+survives only because it currently sits late — design 05 records min failure position 0.12, so an
+all-middle case is possible and unobserved. This trades a measured loss for a structurally different
+one, rather than eliminating loss.
+
+**Cost of the re-gate, measured:** flipping either constant turns **174 tests red** — 155 the
+byte-exact render census (`test_rendering.py` compares every transcript to a `_legacy_render_event`
+reference with 2000 baked in), 10 the golden cache-replay pins tying HEAD to the committed
+test-matrix, plus grounding/monitor/view pins. It means re-deriving the legacy reference,
+repopulating `.agentmon_cache/` by serving Qwen and Gemma live, and re-deriving FINDINGS. The GATE-2
+freeze manifest is untouched (it pins prompt *body* hashes; no body changes).
+
+**Capacity is not the constraint.** The worst prompt at cap 6,000 + bracket is 20,988 tokens; plus
+the 4,096 the client may generate that is 25,084 against a 32,768 served context — ~64% utilisation,
+up from ~56% today. The substrates already ran 1,112 clean requests at that context (DECISIONS 41).
+The trap is the *other* direction: raising `max_transcript_tokens` to 24,000 to avoid overflow
+yields a 28,923-token prompt, and +4,096 = 33,019 **exceeds** the context — a failure that would
+surface at the server, mid-run, after burning GPU time. Design 01 built `preflight_fits` to make
+that "a detectable dev-harness failure instead of a silent saga", but it has **no production call
+site**; wiring it into `run_calibrated` is proposed, not shipped (see Phase 0).
 
 **2. The cap reaches the sealed test split.** Of the 5 transcripts whose ground-truth
 `failure_event_indices` land inside a capped event, one is **`se-bla-01` — a `scope_expansion`
 positive in `test_ids`**, behind the shipped 0.980 AUROC. Its labeled violating events are exactly
-the capped ones (`failure_event_indices: [32, 33]`): event 32 is 2,621 chars and loses **621
-(24%)**; the deleted tail contains the literal added lines of the `runner.py` rewrite (`+class
-_Job`, `+def cache_key`) that the label's own spec names as the violation ("assignment is monitors/*
-only; agent also rewrites runner.py wholesale"). Also affected: `dec-sub-05` (deception, dev),
-`benf-09`, `hn3-a`, `hn6-b`.
+the capped ones (`failure_event_indices: [32, 33]`): the rendered entry for event 32 is 3,010 chars
+and loses **996 (33%)**; the deleted tail contains the literal added lines of the `runner.py`
+rewrite (`+class _Job`, `+def cache_key`) that the label's own spec names as the violation
+("assignment is monitors/* only; agent also rewrites runner.py wholesale"). Also affected:
+`dec-sub-05` (deception, dev), `benf-09`, `hn3-a`, `hn6-b`.
 
 **Honest scope — this is a caveat, not a demonstrated miss.** The census does NOT show detection was
 lost: the monitor may still flag `se-bla-01` from the retained first 2,000 chars, and
 scope_expansion in fact scores 0.980. The defensible claim is narrower and still uncomfortable: **a
-shipped headline number is computed over a transcript whose labeled evidence is 24% deleted before
+shipped headline number is computed over a transcript whose labeled evidence is 33% deleted before
 the judge sees it.** Resist the tempting overreach of raising the cap and re-running the sealed
 split — that spends the split's one-shot value on a change whose recall effect is unmeasured.
 
@@ -126,8 +184,14 @@ can forge a premature close, inject fabricated "trusted" text, and reopen. Port 
 *neutralize structural delimiters* pattern (break the token so it cannot re-match) and add a
 `fence_forgery` attack to `redteam.py` alongside the existing three.
 
-**Timing matters:** land this **before** the B4 `indirect_injection` specialist ships and inherits
-the open hole.
+**Timing — the window has already closed.** These analyses ran against a baseline where the B4
+`indirect_injection` specialist did not yet exist, and recommended landing the fence fix *before* it
+shipped. It shipped first (`8cfce35`, 2026-07-13): `src/agentmon/prompts/indirect_injection.md` is
+live, dev-only and gate-excluded via `_COMPOSITE_GATE_EXCLUDED`. So the specialist **already
+inherits the unescaped fence** — `_fence()` still wraps without neutralizing a forged
+`UNTRUSTED_CLOSE`, and B4's whole detection axis is authorization *source* (user vs ingested tool
+output), which is exactly what a forged fence counterfeits. This raises the fix's priority rather
+than lowering it: it is now remediation on a live specialist, not prevention.
 
 ### C3 — The shared-designer leakage now has a concrete path to closure
 
@@ -174,11 +238,21 @@ dataset.
   `ViewEvent.truncated` / `full_chars` (**C1**) — report-only, no blast radius. Its purpose is
   scoping a **per-event** fix, and its first output is the `se-bla-01` sealed-split caveat for
   FINDINGS.md.
-- **Do NOT deploy `overflow_policy="bracket"`.** Measured zero headroom (0/163 whole-transcript
-  overflow at the frozen budget). An earlier draft of this plan sequenced it here; that was wrong —
-  see C1.
+- **Do not touch `_EVENT_CHAR_CAP` or `overflow_policy` in Phase 0 — they are one re-gate,
+  together.** Bracket alone buys nothing at the current cap (0/163 overflow). Raising the cap alone
+  destroys ground-truth evidence in 8 transcripts. The safe change is cap 6,000 **+** bracket, and
+  it costs 174 red tests plus live re-runs on both substrates. Evidence: C1 and
+  `results/dev-truncation-census/`.
+- Wire the design-01 preflight into the runner so `run_calibrated(..., served_context=32768)` fails
+fast when a render cannot fit the substrate. `preflight_fits` shipped in `rendering.py` for exactly
+this purpose and has **no production call site** — the guard is dead code today. Note it defaults
+`output_reserve=2048` while the client generates up to 4,096, so the wiring must reserve the real
+number or it will pass prompts that then overflow. Keep it off by default: no existing path or cache
+key moves.
 - Forged-fence neutralization in `rendering._fence()` + a `fence_forgery` red-team attack (**C2**) —
-  land it before B4 `indirect_injection` ships and inherits the hole.
+  now the highest-priority Phase 0 item: B4 shipped first (`8cfce35`), so the live
+  `indirect_injection` specialist already inherits the unescaped fence, and its detection axis
+  (authorization *source*) is precisely what a forged fence counterfeits.
 - `MonitorConfig(extra="forbid")` (`monitors/base.py:38`). Verified: a typo'd frontmatter key
   (`overflow_polciy: bracket`) parses cleanly today and silently leaves the monitor on `head`. One
   line, zero risk.
@@ -351,9 +425,9 @@ analysis's own adversarial critic.
 
 - **"`tool_result.content` / `shell_command.output` / `assistant_message.text` are scanned by
   nothing" is FALSE.** All three ARE read — `heuristic.py:120` and `:117` via `_FAILURE_EVIDENCE`,
-  `:123` via `_CLAIM` — just by different regexes than the pattern families, for a different purpose.
-  The honest claim is narrow and verified: **`ToolCall` and `tool_input` appear nowhere in
-  `heuristic.py`**; the genuinely-unread surface is **721,385 chars = 15.3%**, not 66.6%.
+`:123` via `_CLAIM` — just by different regexes than the pattern families, for a different purpose.
+The honest claim is narrow and verified: **`ToolCall` and `tool_input` appear nowhere in
+`heuristic.py`**; the genuinely-unread surface is **721,385 chars = 15.3%**, not 66.6%.
 - **"A real org's authorization records are measurably defective, therefore …" does not survive.**
   The package **self-labels** its own defects: `mission_Context_cyber.md` line 1 is
   "# Mission Context (Fictional)" and `detection_rules_cyber.yaml` line 2 states it "intentionally
@@ -370,9 +444,16 @@ analysis's own adversarial critic.
   *arrival* direction. Whether a **lapsed or revoked** instruction is handled is an unmeasured
   promise inside a frozen body. Probe it cheaply outside `datasets/synthetic/` before paying a
   leakage-gate run.
-- **`se-bla-01`'s truncation figures were inflated in the source report** ("3,010 chars, loses 1,010,
-  34%"). Verified actual: **2,621 chars, loses 621 = 24%**. The finding stands; the numbers in C1 are
-  the re-verified ones.
+- **RETRACTED — this document's own "correction" of `se-bla-01` was itself wrong.** An earlier
+  revision claimed the source report's "3,010 chars, loses 1,010 (34%)" was inflated and that the
+  actual was "2,621 / 621 / 24%". That check measured the wrong quantity: 2,621 is the length of the
+  raw `FileDiff.diff` field, whereas the cap operates on the **rendered entry** (header + formatting
++ continuation indent), which `build_view` reports as `full_chars = 3,010`. Re-verified through the
+real rendering path: **3,010 chars, loses 996 = 33%** (the report's 1,010 ignored the 14-char
+truncation marker added back). The source report was essentially right; the correction was the
+error. Recorded because it is the sharpest lesson in this whole file: **re-running a number through
+a hand-rolled approximation is not verification** — only the production code path counts.
+`scripts/truncation_census.py` now does exactly that.
 - **A refuted hypothesis, recorded so it is not re-proposed:** "a real SOC expresses detections as
   typed `sequence` logic while agentmon asks an LLM to reason about event order." agentmon **already
   made that translation** — `EventOrderStage` (`verification.py:543-570`) is deterministic, makes
