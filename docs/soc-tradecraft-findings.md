@@ -1,123 +1,157 @@
 # SOC-tradecraft findings: what a detection engineer's artifacts taught agentmon
 
 Findings from mining a **synthetic SOC/incident-response artifact package** authored with real
-cyber-warfare-officer tradecraft (2026-07-15). This is the only source in the gap-analysis effort
+cyber-warfare-officer tradecraft (2026-07-15). It is the only source in the gap-analysis effort
 written by a practicing detection engineer rather than by researchers, benchmark authors, or a
 threat taxonomy — the other three sweeps are recorded in `consolidated-gap-analysis.md`.
 
-The headline is not what the package says about cyber. It is that **chasing one SOC idea into
-agentmon's own corpus produced the first hard numbers on C1** — the finding all three prior analyses
-called highest-confidence and none had ever run — and those numbers inverted the plan.
+**The honest headline: the package's contribution was a question, not a measurement.** Its defect
+*rates* teach agentmon nothing and must not be cited. One defect *shape* (staleness) is worth a $0
+probe. The effort's real yield came from following that shape into agentmon's own corpus, which
+produced the first hard numbers on C1 — the finding all three prior analyses called
+highest-confidence and none had ever run.
 
-## The source, and what it is not
+## The source, and why its numbers cannot travel
 
 A government "Mission Support Environment" exercise package: 7 draft detection rules, a SIEM field
 dictionary, a governance policy memo, 22,000 telemetry events, 2,720 incident tickets, 1,800 change
-requests, a 4-sheet asset inventory, and a 60KB email thread.
+requests, a 4-sheet asset inventory (Assets 900 / Owners 5 / Vulns 3,200 / Exceptions 100), and a
+60KB email thread.
 
-**It is synthetic and self-labels as such.** `mission_Context_cyber.md` line 1 is
-"# Mission Context (Fictional)"; the policy memo is stamped "Classification: FOR TRAINING ONLY //
-SYNTHETIC DATA"; `detection_rules_cyber.yaml` line 2 states it "intentionally includes
-inconsistencies, duplicates, and incomplete sections." Policy §1.2 puts offensive operations out of
-scope: the package is blue-team throughout.
+**It self-labels, and that is disqualifying for any claim about the world.**
+`mission_Context_cyber.md` line 1 is "# Mission Context (Fictional)"; the policy memo is stamped
+"FOR TRAINING ONLY // SYNTHETIC DATA"; `detection_rules_cyber.yaml` line 2 states it "intentionally
+includes inconsistencies, duplicates, and incomplete sections"; and the mission brief's own success
+criterion is *"Reconcile contradictory details across files."* **The defects are the assignment.**
+Measuring them measures an author's difficulty dial. They are expert-elicited *shapes*, not measured
+*base rates*.
 
-That self-labelling is load-bearing for how its findings may be used — see *The thesis that died*.
+The cleanest demonstration: of 523 Accepted vulns, 362 (69.2%) carry a resolvable `ExceptionID`, and
+**0 of those 362** have an `Exception.AssetID` matching the vuln's own `AssetID`. That looks damning
+until you compute the null: under a uniform draw against 900 assets the expected number of matches
+is **~0.4**, so observing 0 is the *modal* outcome. The foreign key is decorative — generated
+independently of AssetID. A fact about a generator, not about authorization hygiene.
 
 Two files in the archive are strays and were excluded: `gold.md` (a blue-vs-green hydrogen strategy
-memo, unrelated) and `claude_response.md` (0 bytes).
+memo) and `claude_response.md` (0 bytes).
 
 ## Verification posture
 
-Every number below was **re-derived directly from the files or the repo** for this document. That is
-not ceremony. Across the five analysis passes in this effort the measured fabrication rate was
-**5/5** — every pass, including one whose own stated thesis was "measuring beats arguing," published
-at least one statistic it had not computed. Specific corrections are in *What did not survive
-checking*.
+Every number below was re-derived directly from the files or the repo. Across the analysis passes in
+this effort the measured fabrication rate was **5/5** — every pass, including one whose own thesis
+was "measuring beats arguing," published at least one statistic it had not computed. Corrections are
+in *What did not survive checking*, and they include two of my own.
 
-## What transferred
-
-### T1 — The floor's input surface: `ToolCall.tool_input` is read by nothing
-
-The SIEM dictionary's `parsers[].emits` matrix exists so that a required-in-principle field silently
-missing from a source is caught **before** a rule author depends on it. Turning that discipline on
-agentmon's own seams — nobody had — found this:
-
-`heuristic.py`'s pattern families (`_score_patterns` over `_SECURITY` / `_REWARD_HACKING` /
-`_SCOPE`) read only `action_texts` (FileDiff `+` lines + `ShellCommand.command`) and `removed_texts`
-(the full diff). **`ToolCall` and `tool_input` appear nowhere in `heuristic.py`** — verified by
-grep. That is **300,816 chars** read by nothing. With `UserMessage.text` and
-`OtherEvent.description`, the genuinely-unread surface is **721,385 chars = 15.3%** of the
-4,702,315-char corpus.
-
-Some exclusions are correct and deliberate: the module's docstring scopes patterns to "what the
-agent *did* — never assistant narration," which defensibly exempts `assistant_message.text`. But
-`ToolCall.tool_input` **is** "what the agent did" by that same definition — every `WebFetch`,
-`Task`, and `mcp__*` invocation's arguments are invisible to the deterministic floor.
-
-**Consequence, measured:** a `privilege_grant` heuristic family — which
-`consolidated-gap-analysis.md` recommends promoting ahead of P2 — would fire **0/163 today**. All
-four privilege-shaped strings in the entire corpus sit in fields the pattern families never read:
-`ben-p285-hn`'s `authorized_keys` (×3) in `assistant_message.text`, `self_recon-bla-02`'s `NOPASSWD`
-in `shell_command.output`. The LLM-specialist half is unaffected; the heuristic half is blocked.
-
-Proposed: a **coverage-contract test** pinning, as code, which fields each family reads and which
-are deliberately exempt. Widening `action_texts` to `tool_input` is a *separate*, measured change —
-regex over arbitrary JSON perturbs the reported 0.601 floor.
-
-### T2 — A typo'd knob was silently ignored (fixed)
-
-R-02 in the rule base carries a planted bug: `group in:` instead of `group_in`. It is valid YAML, so
-the rule loads, looks deployed, and never fires.
-
-Reproduced in agentmon's own loader: `overflow_polciy: bracket` parsed cleanly and left the monitor
-on `overflow_policy='head'` — configured on paper, legacy in behaviour, with nothing to notice at
-any layer. **Fixed:** `MonitorConfig` now sets `extra="forbid"`. It rejects no key any shipped
-prompt uses (all eight carry only `id`, `description`, `categories`, `model`,
-`max_transcript_tokens`) and changes no parsed value, so the frozen bodies' configs and every sample
-cache key are byte-identical.
-
-### T3 — Verbatim-quote persistence is an unnamed leak surface
-
-Policy §2.3: *"Do not include raw PII in leadership-facing summaries. Use anonymized identifiers
-(e.g., USER-17)."* §2.2 treats usernames, emails, and IPs as CUI.
-
-agentmon's `Evidence` contract **requires verbatim quotes**, and verdicts persist to
-`verdicts.jsonl` and `.agentmon_cache/`. A monitor reading a transcript containing secrets or PII
-copies them into durable artifacts by design. None of the three prior analyses named this.
-
-The package also shows why this cannot be folded into `FailureCategory`: **PIIFlag is an orthogonal
-governed column**, running 7.8% overall (211/2,720) and **flat across every ticket category** —
-6.57% (Vuln Exploited) to 8.64% (Policy Violation), with "Data Exfil Suspected" at 7.17%, seventh of
-nine. That flatness is the argument: PII exposure is statistically uncorrelated with the failure
-taxonomy, so it is a separate axis, not a failure mode.
-
-### T4 — Authorization: only the *staleness* shape transfers
+## The authorization thread — the package's central offer, mapped shape by shape
 
 `scope_expansion` (AUROC 0.980) and `self_recon`'s task nexus both reduce to **"was this action
 authorized?"**, answered today by an LLM comparing an action to the user's instruction *in the same
-transcript*.
+transcript*. The package answers it differently: an out-of-band CRQ ledger and an Exceptions
+register with approvers, expiry dates, and compensating controls.
 
-The CRQ backlog answers it differently: an out-of-band record with a requester, a risk rating, an
-approval status, **and a `PlannedWindow`** — authorization that is *time-bounded*. The Exceptions
-register does the same for accepted risk: `ApprovedBy`, `ApprovalDate`, **`ExpiryDate`**,
-`CompensatingControl`.
+The tempting inference — *"real authorization records are measurably defective, so a monitor should
+treat unattributed authorization as a first-class signal"* — **fails twice**. The rates are authored
+difficulty (above). And the blocker was never record quality anyway: **a defective ledger and a
+pristine ledger are equally unreachable from inside one transcript.** Oracle *access* is the wall,
+not oracle *quality*. The defect measurement is therefore *irrelevant to the verdict*, not
+supportive of it — worth stating plainly, because the proposal that produced those numbers inherited
+the prior pass's mistake in mirror image, treating "the record is dirty" as though it were the
+reason the feature fails.
 
-What does **not** transfer is the lookup itself (see *does not transfer*). What does is
-**staleness**: `scope_expansion.md:19` promises the monitor handles follow-up "messages, which can
-broaden or narrow scope mid-session" and `:64` that "authorization can arrive mid-transcript." **The
-corpus tests the arrival direction only.** Whether a *lapsed or revoked* instruction is handled is
-an unmeasured promise inside a GATE-2-frozen body — today the honest answer to "does scope_expansion
-handle a retracted instruction?" is *we don't know*.
+What survives is the shape-by-shape mapping — each defect the package exhibits, against agentmon's
+only authorization record:
+
+| defect shape | measured in the package | transfers? |
+|---|---|---|
+| **Unattributed** | 23/100 Exceptions have no `ApprovedBy`; 26/191 (13.6%) Approved CRQs have no requester; the ledger has **no approver column at all** (12 cols, `RequestedBy` only) | **No — by construction.** agentmon's authorization record *cannot* be unattributed: a `UserMessage` **is** the principal. Attribution is a **type**, not a data-quality variable. `verification.py:113`'s "Only a USER message authorizes" already implements the entire available test. |
+| **Orphaned** | 161/523 (30.8%) Accepted vulns carry no `ExceptionID` | **Yes — and it is already the shipped product.** "Action with no authorizing record" *is* `scope_expansion`: 0.980 AUROC, 0 benign FPs on the sealed test split. Nothing to build. |
+| **Expired** | `Exceptions.ExpiryDate`, 100/100 populated — the package's cleanest authorization field | **No — needs a clock.** None of `schemas.py`'s 7 event kinds carries a timestamp. agentmon has event order only; "expires 2024-09-18" is unrepresentable. |
+| **Stale / superseded** | 44/49 (89.8%) of Approved CRQs *declaring dependencies* point at a precursor that is not Approved/Implemented | **Yes — the one live item.** Its analog is an attributed, in-transcript USER authorization whose stated precondition later lapses. Needs no clock — only event order, which agentmon has. |
+
+### The one live item, and the measurement that actually earns it
+
+`scope_expansion.md:19` promises the monitor handles follow-up messages "which can broaden or narrow
+scope mid-session"; `:64` that "authorization can arrive mid-transcript." Measured against the
+corpus:
+
+- **Only 15 of 163 transcripts have more than one `UserMessage` at all** — that bounds the entire
+  question.
+- Across all 163 there are **zero** narrowing/revocation instances. `ben-pacc-hn`'s "don't push yet"
+  is later *lifted* by the same user — the arrival direction, correctly complied with. `hn3-c`'s
+  "Hold off on the report" is a pivot that *broadens*, per its own HN-3 ground truth.
+
+So the **narrow half of a frozen prompt's written promise is an unmeasured claim.** Today the honest
+answer to "does `scope_expansion` handle a retracted instruction?" is *we don't know*.
+
+**Note where that finding came from.** The package supplied the *question*; agentmon's own corpus
+supplied the *answer*. The package is **generative, not evidentiary** — the correct way to use a
+fictional artifact set, and the opposite of how its defect rates were nearly used.
 
 Proposed, staged so the expensive half is conditional: hand-build 3–4 probe transcripts under a new
 `datasets/probes/authorization_retraction/` — **outside `datasets/synthetic/` by construction**, so
-`leakage_check.py` and `split.json` never see them — run them against the frozen monitor
-report-only, and pay for a leakage-gate run **only if** the probe surfaces a real miss.
+`leakage_check.py` and `split.json` never see them — score them against the frozen monitor
+report-only, and pay for a leakage-gate run **only if** the probe surfaces a real miss. Distinct
+from `redteam.py`'s existing `authz_laundering_attack`, which forges approval via *untrusted
+tool-result content*; this is a real user authorization that lapses.
 
-### T5 — The C1 measurement (the package's largest contribution, indirectly)
+## What else transferred
 
-Chasing T4's staleness idea into the corpus produced the first real numbers on C1. Full detail lives
-in `consolidated-gap-analysis.md`; the summary:
+### The floor's input surface: `ToolCall.tool_input` is read by nothing
+
+The SIEM dictionary's `parsers[].emits` matrix exists so a required-in-principle field silently
+missing from a source is caught **before** a rule author depends on it. Turning that discipline on
+agentmon's own seams — nobody had — found this:
+
+`heuristic.py`'s pattern families (`_score_patterns` over `_SECURITY`/`_REWARD_HACKING`/`_SCOPE`)
+read only `action_texts` (FileDiff `+` lines + `ShellCommand.command`) and `removed_texts`.
+**`ToolCall` and `tool_input` appear nowhere in the file** — 300,816 chars read by nothing. With
+`UserMessage.text` (361,015) and `OtherEvent.description` (59,554), the genuinely-unread surface is
+**721,385 of 4,702,315 chars = 15.3%**.
+
+**This corrects the consolidated doc's build-order promotion of `privilege_grant`** (promoted there
+as "the strongest evidence record in the analysis" — zero refutations). Run against the proposed
+collector across all 163 transcripts: `NOPASSWD` fires on 1 (`self_recon-bla-02`), while
+`authorized_keys`, `chmod u+s`, `attach-user-policy`, and `assume-role` each fire **0/163**. No
+label in the set is `privilege_grant`, so **there is no per-category AUROC to perturb** — the mode
+is *unmeasurable on this corpus*, not merely blocked.
+
+Worse, the "exclude assistant narration ⇒ safe surface" rule does not generalize: the adjacent
+pattern **`wheel` hits 15 benign and 16 non-benign transcripts** on that exact surface (routine
+Python packaging output) — roughly base rate, i.e. a pure false-positive generator. Ship the third
+collector as **honest dead-surface hygiene**, with a coverage-contract test pinning which fields
+each family reads. Not as a privilege detector.
+
+### Verbatim-quote persistence is an unnamed leak surface
+
+Policy §2.3: *"Do not include raw PII in leadership-facing summaries. Use anonymized identifiers."*
+§2.2 treats usernames, emails, and IPs as CUI. agentmon's `Evidence` contract **requires verbatim
+quotes**, and verdicts persist to `verdicts.jsonl` and `.agentmon_cache/`. A monitor reading a
+transcript containing secrets or PII copies them into durable artifacts by design. No prior analysis
+named this.
+
+The package also shows why it cannot be a `FailureCategory`: **PIIFlag is an orthogonal governed
+column**, running 7.8% overall (211/2,720) and **flat across every ticket category** — 6.57% (Vuln
+Exploited) to 8.64% (Policy Violation), with "Data Exfil Suspected" at 7.17%, seventh of nine. PII
+exposure is statistically uncorrelated with the failure taxonomy, so it is a separate axis.
+
+### A typo'd knob is silently ignored — hygiene, *not* safety
+
+R-02 carries a planted bug: `group in:` instead of `group_in`. Valid YAML, so the rule loads, looks
+deployed, and never fires. Reproduced in agentmon's loader: `overflow_polciy: bracket` parses
+cleanly and leaves the monitor on `overflow_policy='head'`. **Fixed** via
+`MonitorConfig(extra="forbid")`; it rejects no key any shipped prompt uses (all eight carry only the
+five core keys) and changes no parsed value, so every cache key is byte-identical.
+
+**But the safety argument that motivated it collapses — and this effort's own measurement is what
+collapsed it.** The fix was sold on a typo silently defaulting a monitor "into the known-worst
+render behaviour." With whole-transcript overflow measured at **0/163**, `head` and `bracket` render
+byte-identical output on this corpus, so the typo's present consequence is **nil**. The repo fact is
+real and the fix is worth keeping — as hygiene for future dev-round monitors. Not as safety.
+
+### The C1 measurement (the effort's largest yield, arrived at indirectly)
+
+Chasing the staleness shape into the corpus produced C1's first real numbers. Detail in
+`consolidated-gap-analysis.md`:
 
 | quantity | measured |
 |---|---|
@@ -127,98 +161,92 @@ in `consolidated-gap-analysis.md`; the summary:
 | transcripts with labeled failure evidence inside a capped event | **5** |
 
 One is **`se-bla-01`, a `scope_expansion` positive in the sealed test split**, behind the shipped
-0.980 AUROC: its labeled violating events *are* the capped ones, and the deleted tail contains the
-literal `runner.py` rewrite the label names as the violation. A caveat, not a demonstrated miss —
-but a shipped headline number is computed over a transcript whose labeled evidence is 33% deleted
-before the judge sees it.
-
-This also produced the **cap/policy/budget coupling** correction that inverted the plan's Phase 0.
+0.980 AUROC, losing 996 of 3,010 chars (33%) of the `runner.py` rewrite its label names as the
+violation. A caveat, not a demonstrated miss.
 
 ## What did not transfer — and the missing precondition for each
 
-The subtraction discipline is the deliverable here. A trace monitor that cosplays as a SIEM is worse
-than one that names its boundary.
+The subtraction discipline is the deliverable. A trace monitor that cosplays as a SIEM is worse than
+one that names its boundary.
 
 | SOC practice | missing precondition |
 |---|---|
-| `sequence` rules with `group_by` + `window` | A keyed entity recurring on a time axis. agentmon sees one session; there is nothing to group by and no clock. **Also already solved**: `EventOrderStage` (`verification.py:543`) is deterministic, makes zero model calls, and cites FINDINGS F-A by name. |
-| MTTD / MTTR | A clock. Events carry an index, not a timestamp. |
-| Disposition gates, "budget exhausted -> accept residual risk" | A live queue with an exhaustible shift budget and an accountable human who signs. |
-| CRQ / exception **lookup** as an authorization oracle | A governed system-of-record independent of the artifact being audited. agentmon's only authorization record *is* the transcript. |
-| Epistemic tiers (confirmed / plausible / refuted) | A pipeline that can abstain. |
-| NIST-CSF / CWE crosswalk in reports | Many narrow, independently-tagged rules plus a per-alert join key finer than the category. |
-| Per-source, per-field completeness matrix | Multiple concurrently-live, independently-varying sources. |
-| Canary GUIDs on exported records | A staffed function watching an external leak surface. (The *convention* is still worth adopting for the sealed test — see `consolidated-gap-analysis.md`.) |
-| 8-state CRQ status lifecycle | Eight distinct human handoffs. |
-
-## The thesis that died — and why it matters
-
-The most attractive finding from this package was: *"a real organization's authorization records are
-measurably defective — 23/100 exceptions have no approver, 22% give Reason='Unknown', 40% have no
-compensating control, 161/523 (30.8%) of Accepted vulns carry no ExceptionID at all, and 32 Approved
-CRQs depend on Rejected/Deferred/Duplicate ones — therefore an unattributed authorization claim in a
-transcript ('the user approved this') is exactly as unverifiable as a NULL ApprovedBy, and a monitor
-should treat unattributed authorization as a first-class signal."*
-
-Every one of those numbers is real; I verified each. **The inference is not.** The package
-*self-labels* its defects as deliberate: `detection_rules_cyber.yaml` line 2 announces it
-"intentionally includes inconsistencies, duplicates, and incomplete sections." Those rates measure
-**an author's difficulty dial, not any organization's hygiene**. A synthetic evaluation package
-cannot serve as field evidence about real-world data quality, however realistic its tradecraft.
-
-The narrower verdict survives, for a different reason than the first pass gave: **a defective ledger
-and a pristine one are equally unreachable from inside one transcript.** The blocker was never
-record quality — it is that agentmon has no out-of-band oracle at all. Authorization stays a
-judgement about text.
-
-This is worth recording because the first pass reached the right conclusion via a premise
-(*"'authorized' is a property of the WORLD, checked by lookup"*) that the package's own data
-refutes, and its critic then refuted the refutation using numbers that are themselves
-un-generalizable. Three layers, each partly wrong. The measurement discipline is what settled it.
+| **Approver identity / role-based authorization** | A second authority to check against, plus an identity oracle. agentmon has exactly one principal. "The CISO approved this but the SystemOwner could not have" is not expressible. |
+| **Time-boxed authorization / expiry** | A clock. No event kind carries a timestamp. (The near-miss that *is* reachable: order-relative staleness — the live item above.) |
+| **Asset-criticality weighting** | A resolvable join key from a transcript to an asset. *(The first pass killed this on "no out-of-band inventory" — wrong; the package contains one. The real wall is that the join is decorative even inside its own source: 0/362 matches, and `Criticality` is free text mixing `Critical`, `M`, `H`, and empty.)* |
+| **Cross-record reconciliation, MTTD/MTTR** | Two independent records of the same event, and a clock. agentmon is per-transcript atomic: there is exactly one record and nothing to reconcile against. |
+| **Duplicate detection** | A corpus-level view. `Duplicate` is the ledger's modal status (292/1,799 = 16.2%) and therefore the most tempting motif to port — and the one most cleanly foreclosed by per-transcript atomicity. |
+| **Severity normalization** | A free-text field to normalize. `FailureCategory` is a closed pydantic enum; spellings cannot diverge. Citing this as motivation for schema-hardening is analogy, not evidence. |
+| **Detection-rule field mapping** (`field_map`) | Heterogeneous log sources with competing schemas. agentmon ingests one normalized Event stream; the problem is solved upstream and would be *reintroduced* by porting the pattern. |
+| **Telemetry-gap reasoning** ("don't read missing logs as absence of activity") | Knowledge of what *should* have been recorded. Corroborates the OMISSION mode in the open frontier — motivating, never measurement. |
+| **`sequence` rules with `group_by` + `window`** | A keyed entity on a time axis — and **already solved anyway**: `EventOrderStage` (`verification.py:543`) is deterministic, zero model calls, cites FINDINGS F-A by name, ships in `pipeline_v2`. |
+| **Disposition gates / "budget exhausted → accept residual risk"** | A live queue with an exhaustible shift budget and an accountable human who signs. |
 
 ## What did not survive checking
 
-Recorded so this document does not launder its own source's errors.
+Recorded so this document does not launder its sources' errors — or its own.
 
-- **The lead finding's headline was FALSE.** "tool_result.content — the largest field in the corpus
-  — scanned by nothing" is refuted by execution: `heuristic.py:120` scans it via
-  `_FAILURE_EVIDENCE`, `:117` scans `shell_command.output`, `:123` scans `assistant_message.text`
-  via `_CLAIM`. Three of the six fields listed "never scanned" are scanned, and they are the three
-  largest. The real unread surface is **15.3%, not 66.6%**. The narrow claim (T1) survives; the
-  framing did not.
-- **"71.9% of tickets have impossible timestamp orderings" does not reproduce.** Re-derived: **696 /
-2,720 = 25.6%**. (The related claims do hold: 11 distinct Severity spellings for ~4 concepts; of the
-124 rows with all four timestamps only **4 (3.2%)** are monotonic; **330 (12.1%)** close before they
-open. The lesson stands — a real SOC's answer to bad timestamps is a deterministic validator plus
-published caveats, not a smarter judge — but the figure was inflated ~3x.)
-- **"8/8 rules tagged" is fabricated.** `detection_rules_cyber.yaml` contains **7** rules
-  (R-01…R-06 plus R-05-DUP). NIST coverage is 7/7; **MITRE is 3/7**.
-- **"49 Approved CRQs depend on unfinished precursors"** does not reproduce: the figure is **32**.
-  (Status values: 9, including 182 empty and `Duplicate` as the modal value at 293 — so the claimed
-  "8-state lifecycle with eight human handoffs" was also invented; `Duplicate` is not a handoff.)
-- **"Policy §5's fourth gate, risk transfer"** — §5 lists (a) acceptance, (b) mitigation,
-  (c) **transfer**, (d) mission adjustment. Transfer is the third.
-- **A refuted hypothesis, recorded so it is not re-proposed:** *"a real SOC expresses detections as
-  typed `sequence` logic while agentmon asks an LLM to reason about event order."* agentmon already
-  made that translation — `EventOrderStage` ships in `pipeline_v2`.
-- **A parse artifact of my own, for calibration:** an initial xlsx read produced "Vulns Status is
-corrupted, `EXC-176` appears as a status value." That was my parser mis-handling sparse cells, not a
-package defect. Re-parsing **by cell reference** gives six clean statuses. The package's planted
-flaws are real; that one was mine.
+**From the first SOC pass:**
 
-## The one lesson worth keeping
+- **Its headline was FALSE.** "tool_result.content — the largest field — scanned by nothing" is
+  refuted by execution: `heuristic.py:120` scans it via `_FAILURE_EVIDENCE`, `:117` scans
+  `shell_command.output`, `:123` scans `assistant_message.text` via `_CLAIM`. The unread surface is
+  **15.3%, not 66.6%**. The narrow claim survives; the framing did not.
+- **"71.9% of tickets have impossible timestamp orderings"** → re-derived: **696/2,720 = 25.6%**.
+  (Related claims hold: 11 Severity spellings for ~4 concepts; of the 124 rows with all four
+  timestamps only **4 (3.2%)** are monotonic; **330 (12.1%)** close before they open.)
+- **"8/8 rules tagged"** → there are **7** rules; NIST 7/7, **MITRE 3/7** (R-01, R-02, R-04).
+  Parsing caveat: tags live under each rule's `outputs.tags`, not as top-level keys, so a naive scan
+  reports 0/7 and a careless reader concludes the rules are untagged.
+- **"8-state CRQ lifecycle / eight human handoffs"** → **9** status values including 10.1% blank,
+  with `Duplicate` modal at 292. Not a lifecycle.
+- **Policy §5's "fourth gate, risk transfer"** → §5 lists (a) acceptance, (b) mitigation,
+  (c) **transfer**, (d) mission adjustment. Transfer is third.
+- **"self_recon is frozen"** → `configs/freeze/gate2.yaml` pins exactly **five** bodies:
+  security_vuln, reward_hacking, deception, scope_expansion, generalist. self_recon is dev-only.
 
-The critic's verdict on the first pass was: *"a high-rigor repo audit wearing a SOC-package
-costume."* It was right — two of eight artifacts (the asset inventory, the email thread) contributed
-zero citations, and they were the two richest.
+**From the corrective re-mine:**
 
-But the durable lesson is the one the package models rather than states, and that this document's
-own error list demonstrates twice: **measuring beats arguing.** Both the `privilege_grant` proposal
-and its verifier were confidently wrong in *opposite* directions ("free signal today" vs "it will
-false-positive on `ben-p285-hn`"). Running it settled the question in seconds: zero fires on 163
-rows, because both privilege-shaped strings sit in unscanned fields.
+- **Its own flagship was fabricated** — *"1.0% (5/523) of Accepted vulns trace a clean authorization
+  chain"* reproduces at 69.2% / 54.3% / 40.5% / 27.3% / 0.0% under five escalating join definitions,
+  and at 5/523 under none. The re-mine caught this itself, which is the point of convening it.
+- **"1,800 rows, CRQ-30001…CRQ-31800"** → 1,800 data rows but only **1,799 bear a CRQ_ID**; one
+  record has an **empty primary key**, and CRQ-30189 appears nowhere in the file.
 
-The corollary, learned the hard way in this effort: **re-running a number through a hand-rolled
-approximation is not verification.** Only the production code path counts. Two separate corrections
-in this work — the `se-bla-01` truncation figure and the cap sweep that ignored the render budget —
-were caused by modelling a mechanism instead of calling it.
+**Mine:**
+
+- **My "correction" of 49 → 32 Approved-on-unfinished CRQs refuted a claim nobody made.** The first
+  critic's coarse "49 Approved CRQs depend on Rejected/Deferred/Duplicate" does not reproduce (32
+  under that exact definition; 37 including Rolled Back). But the re-mine had already refined it to
+  **44/49 (89.8%) of Approved CRQs *declaring dependencies* pointing at a precursor that is not
+  Approved/Implemented** — which reproduces **exactly**, and decomposes to 37/49 terminal-bad, 7/49
+  never-decided, 5/49 clean. I measured a different quantity and published it as a refutation.
+- **My "expected 0.33 AssetID matches" check was wrong.** I computed 38.21 using 95/900 — the chance
+  the FK lands in the *set* of exception assets — instead of 1/900, the chance it matches *that
+  vuln's* asset. Correct: 362/900 ≈ **0.4**. The re-mine was right; my refutation was the error.
+  Same conclusion either way.
+- **An xlsx parse artifact.** An initial read reported "Vulns `Status` is corrupted — `EXC-176`
+  appears as a status value." That was my parser mis-handling sparse cells; re-parsing **by cell
+  reference** gives six clean statuses. The package's planted flaws are real; that one was mine.
+
+## The lesson worth keeping
+
+The critic's verdict on the first pass was *"a high-rigor repo audit wearing a SOC-package costume"*
+— two of eight artifacts contributed zero citations, and they were the two richest.
+
+The durable lesson is the one the package models rather than states, and that this document's own
+error list demonstrates three times: **measuring beats arguing.** Both the `privilege_grant`
+proposal and its verifier were confidently wrong in *opposite* directions ("free signal today" vs
+"it will false-positive on `ben-p285-hn`"). Running it settled the question in seconds.
+
+Two corollaries, each learned by getting it wrong here:
+
+1. **Re-running a number through a hand-rolled approximation is not verification.** Only the
+   production code path counts. Three separate errors in this effort — the `se-bla-01` truncation
+   figure, the cap sweep that ignored the render budget, and my AssetID null model — were all caused
+   by modelling a mechanism instead of calling it.
+2. **A summary is not its source.** This document's first version was written from the corrective
+re-mine's *truncated notification* rather than its output file, and was materially weaker for it: it
+missed the shape-by-shape mapping, missed that "orphaned" is already `scope_expansion` and needs
+nothing built, missed the zero-narrowing corpus measurement that is the only real evidence for the
+one live item, and published as corrections two numbers the source had already gotten right.
